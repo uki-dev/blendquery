@@ -13,7 +13,6 @@ def register():
     global cadquery
     from . import install
     cadquery = install.cadquery()
-
     bpy.utils.register_class(ObjectPointerPropertyGroup)
     bpy.utils.register_class(CadQueryPropertyGroup)
     bpy.utils.register_class(CadQueryPanel)
@@ -58,7 +57,6 @@ class ObjectPointerPropertyGroup(bpy.types.PropertyGroup):
 class CadQueryPropertyGroup(bpy.types.PropertyGroup):
     def update(self, _):
         update_object(self.id_data)
-
     script: bpy.props.PointerProperty(name='Script', type=bpy.types.Text, update=update)
     reload: bpy.props.BoolProperty(name='Hot Reload', default=True, update=update)
     pointers: bpy.props.CollectionProperty(type=ObjectPointerPropertyGroup)

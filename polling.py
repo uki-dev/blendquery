@@ -1,4 +1,3 @@
-from . import loading
 import bpy
 import os
 
@@ -26,7 +25,7 @@ def register(object: bpy.types.Object, poll_rate = POLL_RATE):
         string = script.as_string()
         if string != last_string:
             last_string = string
-            # TODO dependency inject this call?
+            from . import loading
             loading.load(object) 
         
         return poll_rate
