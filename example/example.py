@@ -1,7 +1,7 @@
 import cadquery
 
-u = 1
-h = 1
+u = 2
+h = 2
 lh = 4.1 / 2
 th = 1.17 / 2
 
@@ -20,7 +20,7 @@ keycap = keycap.faces('<Y').polyline([
 ]).mirrorX().extrude(h / 2, 'cut')
 
 assembly = cadquery.Assembly(metadata = {
-    'material': 'acrylic'
+    'material': 'acrylic',
 })
 assembly.add(keycap)
 
