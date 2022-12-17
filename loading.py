@@ -6,8 +6,8 @@ OUTPUT_PATH='cadquery.gltf'
 
 def load(object: bpy.types.Object):
 
-    # clean up existing objects
-    delete_objects(object.cadquery.pointers)
+    # clean up previously generated objects
+    unload(object)
 
     try:
         script = object.cadquery.script
@@ -17,12 +17,14 @@ def load(object: bpy.types.Object):
         add_objects(object.cadquery.pointers, objects)
         attach_root(objects, object)
         link_materials(assembly, objects)
-        
-        # clean up filesystem
+        # clean up temporary file on disk
         os.remove(OUTPUT_PATH)
     except Exception as exception:
         import traceback
         traceback.print_exception(exception)
+
+def unload(object: bpy.types.Object):
+    delete_objects(object.cadquery.pointers)
 
 def add_objects(collection, objects):
     for object in objects:

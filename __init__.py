@@ -40,13 +40,16 @@ def initialise(_ = None):
 
 def update_object(object: bpy.types):
     from . import polling
+    from . import loading
     script = object.cadquery.script
     reload = object.cadquery.reload
     if script is not None and reload is True:
-        from . import loading
         loading.load(object)
         polling.register(object)
     else:
+        if script is None:
+            # clean up previously generated objects if script is removed
+            loading.unload(object)
         polling.unregister(object)
 
 class ObjectPointerPropertyGroup(bpy.types.PropertyGroup):
