@@ -20,7 +20,6 @@ def register(object: bpy.types.Object, poll_rate = POLL_RATE):
             modified = os.path.getmtime(script.filepath)
             if modified > last_modified:
                 last_modified = modified
-                print('reload script')
                 reload_text(script)
 
         string = script.as_string()

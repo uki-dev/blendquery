@@ -12,13 +12,7 @@ def load(object: bpy.types.Object):
     try:
         script = object.cadquery.script
         module = script.as_module()
-        try:
-            # TODO: realise a more flexible approach to exposing result to add-on
-            module.result
-        except:
-            print('no result found in', module)
-            return
-
+        # TODO: realise a more flexible approach to exposing result to add-on
         assembly, objects = generate(OUTPUT_PATH, module.result)
         add_objects(object.cadquery.pointers, objects)
         attach_root(objects, object)
@@ -31,21 +25,17 @@ def load(object: bpy.types.Object):
         traceback.print_exception(exception)
 
 def add_objects(collection, objects):
-    print('add objects', collection, objects)
     for object in objects:
         pointer = collection.add()
         pointer.object = object
 
 def delete_objects(collection):
-    print('delete objects', collection)
     for pointer in collection:
         try: 
             bpy.data.objects.remove(pointer.object)
         except:
             pass
-    print('clear', collection.clear)
     collection.clear()
-    print('deleted objects', collection)
 
 # TODO: can we avoid exporting to disk at all, and instead pass a buffer between cadquery and blender?
 def generate(path, object):

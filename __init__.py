@@ -12,21 +12,17 @@ import threading
 def register():
     global cadquery
     from . import install
-    print('install.cadquery()')
     cadquery = install.cadquery()
-
-    print('dependencies installed', cadquery)
 
     bpy.utils.register_class(ObjectPointerPropertyGroup)
     bpy.utils.register_class(CadQueryPropertyGroup)
     bpy.utils.register_class(CadQueryPanel)
     bpy.types.Object.cadquery = bpy.props.PointerProperty(type=CadQueryPropertyGroup)
     if cadquery:
-        print('register load post')
         bpy.app.handlers.load_post.append(initialise)
         # TODO: `load_post` only runs after loading a scene, but we wish to also load our cadquery objects & set up polling whenever our addon registers
-        # TODO: we add a 200ms timeout before setting up the scene to avoid accessing data before blender is ready
-        # TODO: lets try find a more reliable way to do this !
+        #       we add a 200ms timeout before setting up the scene to avoid accessing data before blender is ready
+        #       lets try find a more reliable way to do this !
         timer = threading.Timer(0.2, initialise)
         timer.start()
 
@@ -39,7 +35,6 @@ def unregister():
 
 @persistent
 def initialise(_ = None):
-    print('intiialise')
     for object in bpy.data.objects:
         update_object(object)
 
@@ -47,7 +42,6 @@ def update_object(object: bpy.types):
     from . import polling
     script = object.cadquery.script
     reload = object.cadquery.reload
-    print('update_object')
     if script is not None and reload is True:
         from . import loading
         loading.load(object)
@@ -60,7 +54,6 @@ class ObjectPointerPropertyGroup(bpy.types.PropertyGroup):
 
 class CadQueryPropertyGroup(bpy.types.PropertyGroup):
     def update(self, _):
-        print('update property', self)
         update_object(self.id_data)
 
     script: bpy.props.PointerProperty(name='Script', type=bpy.types.Text, update=update)
