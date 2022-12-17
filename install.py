@@ -5,6 +5,7 @@ def cadquery():
         import importlib.util
  
         dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'lib')
+        # ensure directory exists before adding it to `sys.path` otherwise the module wont be found after installing
         if not os.path.exists(dir):
             os.makedirs(dir)
         sys.path.append(dir)
