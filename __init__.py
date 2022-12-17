@@ -1,7 +1,7 @@
 bl_info = {
-    'name': 'bad × query',
+    'name': 'BadQuery',
     'blender': (3, 0, 0),
-    'category': 'Import-Export',
+    'category': 'Parametric',
 }
 
 from bpy.app.handlers import persistent
