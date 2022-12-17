@@ -16,6 +16,7 @@ def register(object: bpy.types.Object, poll_rate = POLL_RATE):
     def timer():
         nonlocal last_string, last_modified
 
+        # TODO: avoid overwriting local changes
         if not script.is_in_memory:
             modified = os.path.getmtime(script.filepath)
             if modified > last_modified:
