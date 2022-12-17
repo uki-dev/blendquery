@@ -3,17 +3,24 @@ def cadquery():
         import os
         import sys
         import importlib.util
+ 
         dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'lib')
+        if not os.path.exists(dir):
+            os.makedirs(dir)
         sys.path.append(dir)
+  
         if importlib.util.find_spec('cadquery') is None:
             import subprocess
             executable = os.path.abspath(sys.executable)
-            subprocess.call([executable, '-m', 'ensurepip', '--user'])
-            subprocess.call([executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
-            subprocess.call([executable,'-m', 'pip', 'install', f'--target={dir}', '--pre', 'cadquery'])
-        import cadquery
+            subprocess.run([executable, '-m', 'ensurepip', '--user'])
+            subprocess.run([executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
+            subprocess.run([executable,'-m', 'pip', 'install', f'--target={dir}', '--pre', 'cadquery'])
+
+        import importlib
+        cadquery = importlib.import_module('cadquery')
         return cadquery
     except Exception as exception:
         import traceback
         traceback.print_exception(exception)
         return None
+
