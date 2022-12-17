@@ -1,6 +1,6 @@
 bl_info = {
     'name': 'BAD × QUERY',
-    'blender': (3, 4, 0),
+    'blender': (3, 0, 0),
     'category': 'Import-Export',
 }
 
