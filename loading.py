@@ -5,6 +5,8 @@ import os
 OUTPUT_PATH='cadquery.gltf'
 
 def load(object: bpy.types.Object):
+    active = bpy.context.view_layer.objects.active
+    selected_objects = bpy.context.selected_objects.copy()
 
     # clean up previously generated objects
     unload(object)
@@ -22,6 +24,16 @@ def load(object: bpy.types.Object):
     except Exception as exception:
         import traceback
         traceback.print_exception(exception)
+    
+    # preserve selection
+    for selected_object in bpy.context.selected_objects:
+        selected_object.select_set(False)
+    try:
+        for selected_object in selected_objects:
+            selected_object.select_set(True)
+        bpy.context.view_layer.objects.active = active
+    except:
+        pass
 
 def unload(object: bpy.types.Object):
     delete_objects(object.cadquery.pointers)
