@@ -1,4 +1,4 @@
-# BadQuery
+# BlendQuery
 [CadQuery](https://github.com/CadQuery/cadquery) integration for Blender
 
 ![image](https://user-images.githubusercontent.com/7185241/208252834-c1cdd4eb-b37c-4fd0-bf71-3cdb8ad4bca0.png)
