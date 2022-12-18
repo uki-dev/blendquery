@@ -1,10 +1,6 @@
 # TODO: fix typing
-
 import bpy
 import cadquery
-import os
-
-OUTPUT_PATH='cadquery.gltf'
 
 def load(object: bpy.types.Object):
     active = bpy.context.view_layer.objects.active
@@ -14,15 +10,18 @@ def load(object: bpy.types.Object):
     unload(object)
 
     try:
+        import os
+        import uuid
         script = object.cadquery.script
         module = script.as_module()
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), str(uuid.uuid4()))
         # TODO: realise a more flexible approach to exposing result to add-on
-        assembly, objects = generate(OUTPUT_PATH, module.result)
+        assembly, objects = generate(path, module.result)
         add_objects(object.cadquery.pointers, objects)
         attach_root(objects, object)
         link_materials(assembly, objects)
         # clean up temporary file on disk
-        os.remove(OUTPUT_PATH)
+        os.remove(path)
     except Exception as exception:
         import traceback
         traceback.print_exception(exception)
