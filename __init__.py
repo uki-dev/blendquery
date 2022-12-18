@@ -1,5 +1,5 @@
 bl_info = {
-    'name': 'BadQuery',
+    'name': 'BlendQuery',
     'blender': (3, 0, 0),
     'category': 'Parametric',
 }
