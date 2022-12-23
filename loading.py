@@ -17,6 +17,7 @@ def load(object: bpy.types.Object):
         # CadQuery exports using binary glTF format
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), str(uuid.uuid4()) + '.glb')
         # TODO: realise a more flexible approach to exposing result to add-on
+        #       like cq-editor's `show_object`
         assembly, objects = generate(path, module.result)
         add_objects(object.cadquery.pointers, objects)
         attach_root(objects, object)
