@@ -55,6 +55,8 @@ def delete_objects(collection):
 # TODO: can we avoid exporting to disk at all, and instead pass a buffer between cadquery and blender?
 def generate(path, object):
     assembly = cadquery.Assembly()
+    # TODO: remove once https://github.com/CadQuery/cadquery/pull/1211 lands
+    assembly.loc *= cadquery.Location((0, 0, 0), (1, 0, 0), -90)
     assembly.add(object)
     assembly.save(path, exportType='GLTF')
     objects = set(bpy.context.scene.objects)
