@@ -14,7 +14,8 @@ def load(object: bpy.types.Object):
         import uuid
         script = object.cadquery.script
         module = script.as_module()
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), str(uuid.uuid4()))
+        # CadQuery exports using binary glTF format
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), str(uuid.uuid4()) + '.glb')
         # TODO: realise a more flexible approach to exposing result to add-on
         assembly, objects = generate(path, module.result)
         add_objects(object.cadquery.pointers, objects)
