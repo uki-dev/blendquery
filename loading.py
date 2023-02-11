@@ -51,7 +51,7 @@ def delete_objects(collection):
         try: 
             bpy.data.objects.remove(pointer.object)
         except:
-            pass
+            continue
     collection.clear()
 
 # TODO: can we avoid exporting to disk at all, and instead pass a buffer between cadquery and blender?
