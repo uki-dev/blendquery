@@ -48,8 +48,10 @@ def add_objects(collection, objects):
 
 def delete_objects(collection):
     for pointer in collection:
-        try: 
-            bpy.data.objects.remove(pointer.object)
+        try:
+            # additional scene unlink is required to avoid `EXCEPTION_ACCESS_VIOLATION`, despite passing `do_unlink=True` to `bpy.data.objects.remove`
+            bpy.context.scene.objects.unlink(pointer.object)
+            bpy.data.objects.remove(pointer.object, do_unlink=True)
         except:
             continue
     collection.clear()
