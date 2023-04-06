@@ -27,10 +27,16 @@ def unregister():
 
 @persistent
 def initialise(_ = None):
+    # TODO: find a cleaner solution than this
     # as `update_object` may delete objects from `bpy.data.objects` to perform cleanup, iterate on a copy of it instead to avoid crashes due to `EXCEPTION_ACCESS_VIOLATION`
-    objects = bpy.data.objects.copy()
+    objects = []
+    for object in bpy.data.objects:
+        objects.append(object)
     for object in objects:
-        update_object(object)
+        try: 
+            update_object(object)
+        except: 
+            pass
 
 def update_object(object: bpy.types.Object):
     from . import polling
