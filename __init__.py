@@ -27,7 +27,9 @@ def unregister():
 
 @persistent
 def initialise(_ = None):
-    for object in bpy.data.objects:
+    # as `update_object` may delete objects from `bpy.data.objects` to perform cleanup, iterate on a copy of it instead to avoid crashes due to `EXCEPTION_ACCESS_VIOLATION`
+    objects = bpy.data.objects.copy()
+    for object in objects:
         update_object(object)
 
 def update_object(object: bpy.types.Object):
