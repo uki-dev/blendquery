@@ -1,6 +1,9 @@
 # TODO: fix typing
 import bpy
 import cadquery
+import traceback
+from . import mesh
+
 
 def load(object: bpy.types.Object):
     active = bpy.context.view_layer.objects.active
@@ -10,25 +13,20 @@ def load(object: bpy.types.Object):
     unload(object)
 
     try:
-        import os
-        import uuid
         script = object.cadquery.script
         module = script.as_module()
-        # CadQuery exports using binary glTF format
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), str(uuid.uuid4()) + '.glb')
         # TODO: realise a more flexible approach to exposing result to add-on
         #       like cq-editor's `show_object`
-        assembly, objects = generate(path, module.result)
-        add_objects(object.cadquery.pointers, objects)
-        attach_root(objects, object)
-        link_materials(assembly, objects)
-        # clean up temporary file on disk
-        os.remove(path)
+        objects = mesh.generate(module.result)
+        add_object_pointers(objects, object.cadquery.pointers)
+        attach_objects_to_root(objects, object)
+        # link_materials(assembly, objects)
     except Exception as exception:
-        import traceback
         traceback.print_exception(exception)
-    
-    # preserve selection
+    restore_selection(active, selected_objects)
+
+
+def restore_selection(active, selected_objects):
     for selected_object in bpy.context.selected_objects:
         selected_object.select_set(False)
     try:
@@ -38,15 +36,18 @@ def load(object: bpy.types.Object):
     except:
         pass
 
-def unload(object: bpy.types.Object):
-    delete_objects(object.cadquery.pointers)
 
-def add_objects(collection, objects):
+def unload(object: bpy.types.Object):
+    delete_object_ponters(object.cadquery.pointers)
+
+
+def add_object_pointers(objects, collection):
     for object in objects:
         pointer = collection.add()
         pointer.object = object
 
-def delete_objects(collection):
+
+def delete_object_ponters(collection):
     for pointer in collection:
         try:
             bpy.data.objects.remove(pointer.object, do_unlink=True)
@@ -54,35 +55,29 @@ def delete_objects(collection):
             continue
     collection.clear()
 
-# TODO: can we avoid exporting to disk at all, and instead pass a buffer between cadquery and blender?
-def generate(path, object):
-    assembly = cadquery.Assembly()
-    assembly.add(object)
-    assembly.save(path, exportType='GLTF')
-    objects = set(bpy.context.scene.objects)
-    bpy.ops.import_scene.gltf(filepath=path)
-    return assembly, set(bpy.context.scene.objects) - objects
 
-def attach_root(objects, parent):
+def attach_objects_to_root(objects, parent):
     for object in objects:
         if object.parent is None:
             object.parent = parent
 
+
 def link_materials(assembly: cadquery.Assembly, objects):
     for child in assembly.objects.values():
         try:
-            material = bpy.data.materials[child.metadata['material']]
+            material = bpy.data.materials[child.metadata["material"]]
             # TODO: use `objects`` not `bpy.data.objects`
             object = bpy.data.objects[child.name]
             apply_material(object, material)
         except:
             pass
 
+
 def apply_material(object: bpy.types.Object, material: bpy.types.Material):
     def walk(object: bpy.types.Object):
-        if object.type == 'MESH':
+        if object.type == "MESH":
             object.data.materials.append(material)
         for child in object.children:
             walk(child)
+
     walk(object)
-    
