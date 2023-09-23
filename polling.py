@@ -13,6 +13,7 @@ def watch_for_text_changes(
     last_string = text.as_string()
     last_modified = not text.is_in_memory and os.path.getmtime(abs_filepath) or None
 
+    # TODO: @uki-dev can we pull this outside of this function?
     def timer():
         nonlocal last_string, last_modified
         # Support filepath of text changing

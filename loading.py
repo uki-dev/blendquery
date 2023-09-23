@@ -2,43 +2,32 @@
 import bpy
 import cadquery as cq
 import cadquery.cqgi as cqgi
-from cadquery import Assembly
+from cadquery import Workplane, Compound, Shape, Assembly
 import traceback
-from . import mesh
+from types import ModuleType
+from typing import List, Union
+
+Object = Union[cq.Workplane, cq.Shape, cq.Assembly]
 
 
 def load(object: bpy.types.Object):
+    script, objects = object.cadquery.script, object.cadquery.objects
+
+    # Store current selection
     active = bpy.context.view_layer.objects.active
     selected_objects = bpy.context.selected_objects.copy()
 
-    # clean up previously generated objects
-    unload(object)
+    # Clean up previously generated objects
+    for pointer in objects:
+        try:
+            bpy.data.objects.remove(pointer.object, do_unlink=True)
+        except:
+            continue
+    objects.clear()
 
-    try:
-        script = object.cadquery.script
-        model = cqgi.parse(script.as_string())
-        build_result = model.build()
-        print("Building CQModel")
-        if build_result.success:
-            print(
-                "Build succeeded with "
-                + str(build_result.results.__len__())
-                + " shape results"
-            )
-            for i, result in enumerate(build_result.results):
-                print("Iterating result " + str(i) + ": " + str(type(result.shape)))
-                objects = mesh.generate(result.shape)
-                add_object_pointers(objects, object.cadquery.pointers)
-                link_materials(result, objects)
-                attach_objects_to_root(objects, object)
-        else:
-            print(f"Build failed: {build_result.exception}")
-    except Exception as exception:
-        traceback.print_exception(exception)
-    restore_selection(active, selected_objects)
+    build(script.as_string(), object, objects)
 
-
-def restore_selection(active, selected_objects):
+    # Restore selection
     for selected_object in bpy.context.selected_objects:
         selected_object.select_set(False)
     try:
@@ -49,62 +38,76 @@ def restore_selection(active, selected_objects):
         pass
 
 
-def unload(object: bpy.types.Object):
-    delete_object_ponters(object.cadquery.pointers)
+def build(script, parent, objects):
+    globals = {
+        "cq": cq,
+    }
+    locals = {}
 
-
-def add_object_pointers(objects, collection):
-    for object in objects:
-        pointer = collection.add()
-        pointer.object = object
-
-
-def delete_object_ponters(collection):
-    for pointer in collection:
-        try:
-            bpy.data.objects.remove(pointer.object, do_unlink=True)
-        except:
-            continue
-    collection.clear()
-
-
-def attach_objects_to_root(objects, parent):
-    for object in objects:
-        if object.parent is None:
-            object.parent = parent
-
-
-def link_materials(shape_result, objects):
-    print("Linking materials")
-    # material = None
+    print("Executing")
     try:
-        material_name = shape_result.options["material"]
-        print("Material name:" + str(material_name))
-        material = bpy.data.materials[material_name]
-        print("Material:" + str(material))
-        for object in objects:
-            apply_material(object, material)
-    except:
-        pass
-
-    # if isinstance(shape_result.shape, Assembly):
-    #     assembly = shape_result.shape
-    #     for child in assembly.objects.values():
-    #         try:
-    #             material = bpy.data.materials[child.metadata["material"]]
-    #             # TODO: use `objects`` not `bpy.data.objects`
-    #             object = bpy.data.objects[child.name]
-    #             apply_material(object, material)
-    #         except:
-    #             pass
+        exec(script, globals, locals)
+        # Ignore all keys that start with `_` as they are to be considered hidden
+        visible_locals = {
+            key: value for key, value in locals.items() if not key.startswith("_")
+        }
+        for name, value in visible_locals.items():
+            print("Iterating local: " + str(name) + " : " + str(value))
+            if isinstance(value, Object):
+                build_object(value, name, parent, objects)
+    except Exception as exception:
+        traceback.print_exception(exception)
 
 
-def apply_material(object: bpy.types.Object, material: bpy.types.Material):
-    def walk(object: bpy.types.Object):
-        if object.type == "MESH":
-            print("Applying " + str(material) + " to " + str(object))
-            object.data.materials.append(material)
+def build_object(object: Object, name: str, parent, objects):
+    print("Building object " + name + ": " + str(object) + " " + str(type(object)))
+
+    if isinstance(object, Workplane):
+        compound = cq.exporters.utils.toCompound(object)
+        blender_object = build_shape(compound, name)
+        blender_object.parent = parent
+        # object.data.materials.append(material)
+        property_group = objects.add()
+        property_group.object = blender_object
+    elif isinstance(object, Shape):
+        blender_object = build_shape(object, name)
+        blender_object.parent = parent
+        # object.data.materials.append(material)
+        property_group = objects.add()
+        property_group.object = blender_object
+    elif isinstance(object, Assembly):
+        blender_object = bpy.data.objects.new(
+            name if object.parent is None else object.name, None
+        )
+        blender_object.parent = parent
+        property_group = objects.add()
+        property_group.object = blender_object
+        bpy.context.scene.collection.objects.link(blender_object)
+        # try:
+        #     material_name = assembly.metadata["material"]
+        #     material = bpy.data.materials[material_name]
+        # except:
+        #     pass
+        for shape in object.shapes:
+            build_object(shape, name, blender_object, objects)
         for child in object.children:
-            walk(child)
+            build_object(child, name, blender_object, objects)
 
-    walk(object)
+
+def build_shape(
+    shape: Shape,
+    name: str,
+    tolerance=0.1,
+    angularTolerance=0.1,
+):
+    print("Building shape " + name + ": " + str(shape) + " " + str(type(shape)))
+    vertices, faces = shape.tessellate(tolerance, angularTolerance)
+    vertices = [vertex.toTuple() for vertex in vertices]
+
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+
+    object = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(object)
+    return object

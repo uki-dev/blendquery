@@ -17,7 +17,7 @@ def register():
 
     # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
 
-    bpy.utils.register_class(ObjectPointerPropertyGroup)
+    bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(CadQueryPropertyGroup)
     bpy.utils.register_class(CadQueryPanel)
     bpy.types.Object.cadquery = bpy.props.PointerProperty(type=CadQueryPropertyGroup)
@@ -30,7 +30,7 @@ def unregister():
         bpy.app.handlers.load_post.remove(initialise)
     bpy.utils.unregister_class(CadQueryPanel)
     bpy.utils.unregister_class(CadQueryPropertyGroup)
-    bpy.utils.unregister_class(ObjectPointerPropertyGroup)
+    bpy.utils.unregister_class(ObjectPropertyGroup)
 
 
 @persistent
@@ -69,7 +69,7 @@ def update_object(object: bpy.types.Object):
             disposer()
 
 
-class ObjectPointerPropertyGroup(bpy.types.PropertyGroup):
+class ObjectPropertyGroup(bpy.types.PropertyGroup):
     object: bpy.props.PointerProperty(type=bpy.types.Object)
 
 
@@ -79,7 +79,7 @@ class CadQueryPropertyGroup(bpy.types.PropertyGroup):
 
     script: bpy.props.PointerProperty(name="Script", type=bpy.types.Text, update=update)
     reload: bpy.props.BoolProperty(name="Hot Reload", default=True, update=update)
-    pointers: bpy.props.CollectionProperty(type=ObjectPointerPropertyGroup)
+    objects: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
 
 
 class CadQueryPanel(bpy.types.Panel):
