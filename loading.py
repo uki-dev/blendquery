@@ -12,8 +12,12 @@ Object = Union[cq.Workplane, cq.Shape, cq.Assembly]
 
 
 def load(object: bpy.types.Object):
-    cadquery = object.cadquery
-    script, objects, attributes = cadquery.script, cadquery.objects, cadquery.attributes
+    blendquery = object.blendquery
+    script, objects, attributes = (
+        blendquery.script,
+        blendquery.objects,
+        blendquery.attributes,
+    )
 
     # Store current selection
     active = bpy.context.view_layer.objects.active

@@ -16,14 +16,14 @@ def register():
 
     cadquery = install.cadquery()
 
-    # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
-
     bpy.utils.register_class(AttributePropertyGroup)
     bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(BlendQueryPropertyGroup)
     bpy.utils.register_class(ResetOperator)
-    bpy.utils.register_class(CadQueryPanel)
-    bpy.types.Object.cadquery = bpy.props.PointerProperty(type=BlendQueryPropertyGroup)
+    bpy.utils.register_class(BlendQueryPanel)
+    bpy.types.Object.blendquery = bpy.props.PointerProperty(
+        type=BlendQueryPropertyGroup
+    )
     if cadquery:
         bpy.app.handlers.load_post.append(initialise)
 
@@ -31,7 +31,7 @@ def register():
 def unregister():
     if cadquery:
         bpy.app.handlers.load_post.remove(initialise)
-    bpy.utils.unregister_class(CadQueryPanel)
+    bpy.utils.unregister_class(BlendQueryPanel)
     bpy.utils.unregister_class(ResetOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
     bpy.utils.unregister_class(ObjectPropertyGroup)
@@ -56,14 +56,15 @@ disposers = {}
 
 
 def update_object(object: bpy.types.Object):
+    # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
     from . import loading
 
-    cadquery = object.cadquery
+    blendquery = object.blendquery
     script, reload, attributes, objects = (
-        cadquery.script,
-        cadquery.reload,
-        cadquery.attributes,
-        cadquery.objects,
+        blendquery.script,
+        blendquery.reload,
+        blendquery.attributes,
+        blendquery.objects,
     )
     if script is not None and reload is True:
 
@@ -183,11 +184,11 @@ class ResetOperator(bpy.types.Operator):
 
     def execute(self, context):
         if context.active_object:
-            context.active_object.cadquery.attributes.clear()
+            context.active_object.blendquery.attributes.clear()
         return {"FINISHED"}
 
 
-class CadQueryPanel(bpy.types.Panel):
+class BlendQueryPanel(bpy.types.Panel):
     bl_idname = "OBJECT_PT_CAD_QUERY"
     bl_label = bl_info["name"]
     bl_space_type = "PROPERTIES"
@@ -205,13 +206,13 @@ class CadQueryPanel(bpy.types.Panel):
         column.enabled = cadquery is not None
         if context.active_object:
             object = context.active_object
-            column.prop(object.cadquery, "script")
-            column.prop(object.cadquery, "reload")
+            column.prop(object.blendquery, "script")
+            column.prop(object.blendquery, "reload")
             box = layout.box()
             row = box.row()
             row.label(text="Attributes")
             row.operator("blendquery.reset", icon="FILE_REFRESH")
-            for attribute in object.cadquery.attributes:
+            for attribute in object.blendquery.attributes:
                 if not attribute.defined:
                     continue
                 row = box.row()
