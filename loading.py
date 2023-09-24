@@ -6,26 +6,23 @@ from cadquery import Workplane, Compound, Shape, Assembly
 import traceback
 from types import ModuleType
 from typing import List, Union
+import re
 
 Object = Union[cq.Workplane, cq.Shape, cq.Assembly]
 
 
 def load(object: bpy.types.Object):
-    script, objects = object.cadquery.script, object.cadquery.objects
+    cadquery = object.cadquery
+    script, objects, attributes = cadquery.script, cadquery.objects, cadquery.attributes
 
     # Store current selection
     active = bpy.context.view_layer.objects.active
     selected_objects = bpy.context.selected_objects.copy()
 
     # Clean up previously generated objects
-    for pointer in objects:
-        try:
-            bpy.data.objects.remove(pointer.object, do_unlink=True)
-        except:
-            continue
-    objects.clear()
+    unload(objects)
 
-    build(script.as_string(), object, objects)
+    build(script.as_string(), object, objects, attributes)
 
     # Restore selection
     for selected_object in bpy.context.selected_objects:
@@ -38,7 +35,25 @@ def load(object: bpy.types.Object):
         pass
 
 
-def build(script, parent, objects):
+def unload(objects: list[bpy.types.Object]):
+    for pointer in objects:
+        try:
+            bpy.data.objects.remove(pointer.object, do_unlink=True)
+        except:
+            continue
+    objects.clear()
+
+
+# TODO: share with `__init__.py`
+TYPE_TO_PROPERTY = {
+    "bool": "bool_value",
+    "int": "int_value",
+    "float": "float_value",
+    "str": "str_value",
+}
+
+
+def build(script, parent, objects, attributes):
     globals = {
         "cq": cq,
     }
@@ -46,6 +61,17 @@ def build(script, parent, objects):
 
     print("Executing")
     try:
+        # Override attributes
+        for attribute in attributes:
+            if not attribute.defined:
+                continue
+            key = attribute.key
+            property = TYPE_TO_PROPERTY[attribute.type]
+            value = getattr(attribute, property)
+            print("Overriding " + key + " with " + str(value))
+            pattern = r'({} = "(.*?)")'.format(re.escape(key))
+            script = re.sub(pattern, f'{key} = "{value}"', script)
+        print("Script override: " + script)
         exec(script, globals, locals)
         # Ignore all keys that start with `_` as they are to be considered hidden
         visible_locals = {
