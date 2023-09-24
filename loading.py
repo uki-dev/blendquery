@@ -1,11 +1,9 @@
 # TODO: fix typing
 import bpy
 import cadquery as cq
-import cadquery.cqgi as cqgi
-from cadquery import Workplane, Compound, Shape, Assembly
+from cadquery import Workplane, Shape, Assembly
 import traceback
-from types import ModuleType
-from typing import List, Union
+from typing import Union
 import re
 
 Object = Union[cq.Workplane, cq.Shape, cq.Assembly]
@@ -26,6 +24,8 @@ def load(object: bpy.types.Object):
     # Clean up previously generated objects
     unload(objects)
 
+    # Build script
+    # TODO: Is there better DI that we can do so that `build` isnt responsible for objects, attributes, materials, etc
     build(script.as_string(), object, objects, attributes)
 
     # Restore selection
@@ -62,8 +62,6 @@ def build(script, parent, objects, attributes):
         "cq": cq,
     }
     locals = {}
-
-    print("Executing")
     try:
         # Override attributes
         for attribute in attributes:
@@ -72,26 +70,25 @@ def build(script, parent, objects, attributes):
             key = attribute.key
             property = TYPE_TO_PROPERTY[attribute.type]
             value = getattr(attribute, property)
-            print("Overriding " + key + " with " + str(value))
+            # TODO: Support dynamic whitespacing
             pattern = r'({} = "(.*?)")'.format(re.escape(key))
             script = re.sub(pattern, f'{key} = "{value}"', script)
-        print("Script override: " + script)
+
         exec(script, globals, locals)
-        # Ignore all keys that start with `_` as they are to be considered hidden
+        # Ignore all keys that start with `_`, as they are to be considered hidden
         visible_locals = {
             key: value for key, value in locals.items() if not key.startswith("_")
         }
         for name, value in visible_locals.items():
-            print("Iterating local: " + str(name) + " : " + str(value))
             if isinstance(value, Object):
                 build_object(value, name, parent, objects)
     except Exception as exception:
         traceback.print_exception(exception)
 
 
+# TODO: Reimplement material linking
 def build_object(object: Object, name: str, parent, objects):
-    print("Building object " + name + ": " + str(object) + " " + str(type(object)))
-
+    # TODO: Tidy up this mess
     if isinstance(object, Workplane):
         compound = cq.exporters.utils.toCompound(object)
         blender_object = build_shape(compound, name)
@@ -130,7 +127,6 @@ def build_shape(
     tolerance=0.1,
     angularTolerance=0.1,
 ):
-    print("Building shape " + name + ": " + str(shape) + " " + str(type(shape)))
     vertices, faces = shape.tessellate(tolerance, angularTolerance)
     vertices = [vertex.toTuple() for vertex in vertices]
 

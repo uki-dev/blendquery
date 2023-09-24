@@ -14,6 +14,8 @@ def register():
     global cadquery, loading
     from . import install
 
+    # TODO: Be less invasive around dependency installation, even though it's local to this addon
+    #       Perhaps we can show a UI button to install if it's not detected
     cadquery = install.cadquery()
 
     bpy.utils.register_class(AttributePropertyGroup)
@@ -69,15 +71,14 @@ def update_object(object: bpy.types.Object):
     if script is not None and reload is True:
 
         def refresh():
-            print("refresh")
             # If there are any issues in the script we just end early due to try/except
             try:
-                # TODO: we should share this module with `loading.load` and avoid two script evaluations
+                # TODO: Pull all this attribute wrangling into its own function
+                # TODO: We should share this module with `loading.load` and avoid two script evaluations
                 module = script.as_module()
                 visible_attributes = {
                     key for key in dir(module) if not key.startswith("_")
                 }
-                # cadquery.attributes = attributes = [attribute for attribute in attributes if attribute.key in visible_attributes]
 
                 for attribute in attributes:
                     attribute.defined = attribute.key in visible_attributes
@@ -85,15 +86,6 @@ def update_object(object: bpy.types.Object):
                 for key in visible_attributes:
                     value = getattr(module, key)
                     type_name = value.__class__.__name__
-                    print(
-                        "module attribute "
-                        + str(key)
-                        + " "
-                        + type_name
-                        + " "
-                        + str(type_name in TYPE_TO_PROPERTY)
-                    )
-
                     if type_name in TYPE_TO_PROPERTY:
                         # Find existing property group that matches key and type
                         attribute_property_group = next(
@@ -113,7 +105,6 @@ def update_object(object: bpy.types.Object):
                         attribute_property_group.type = type_name
                         property = TYPE_TO_PROPERTY[type_name]
                         setattr(attribute_property_group, property, value)
-                        print("added property group " + str(key))
 
                 loading.load(object)
             except Exception as exception:
@@ -138,14 +129,8 @@ TYPE_TO_PROPERTY = {
 
 
 class AttributePropertyGroup(bpy.types.PropertyGroup):
-    _init = False
-
     def update(self, _):
-        # if not self._init:
-        #     print("ignore first update")
-        #     self._init = True
-        #     return
-        print("update " + str(self.key) + " " + str(self.str_value))
+        # TODO: Debounce
         update_object(self.id_data)
 
     key: bpy.props.StringProperty()
@@ -188,8 +173,9 @@ class ResetOperator(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# TODO: Pull UI components into separate functions
 class BlendQueryPanel(bpy.types.Panel):
-    bl_idname = "OBJECT_PT_CAD_QUERY"
+    bl_idname = "blendquery.panel"
     bl_label = bl_info["name"]
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -197,17 +183,21 @@ class BlendQueryPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        # Install error
         if not cadquery:
             box = layout.box()
             box.label(
                 text="Failed to install dependencies; See system console.", icon="ERROR"
             )
+
         column = layout.row()
         column.enabled = cadquery is not None
         if context.active_object:
             object = context.active_object
             column.prop(object.blendquery, "script")
             column.prop(object.blendquery, "reload")
+            # TODO: Show script error
+            # Attributes
             box = layout.box()
             row = box.row()
             row.label(text="Attributes")
