@@ -1,39 +1,47 @@
-def cadquery():
-    try:
-        import os
-        import sys
-        import importlib.util
+import os
+import sys
+import threading
+from typing import Union, Callable
 
-        dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib")
-        # ensure directory exists before adding it to `sys.path` otherwise the module wont be found after installing
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-        sys.path.append(dir)
 
-        if importlib.util.find_spec("cadquery") is None:
-            import subprocess
+class BlendQueryInstallException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
 
-            executable = os.path.abspath(sys.executable)
-            subprocess.run([executable, "-m", "ensurepip", "--user"])
-            subprocess.run([executable, "-m", "pip", "install", "--upgrade", "pip"])
-            subprocess.run(
-                [
-                    executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    f"--target={dir}",
-                    "--pre",
-                    "cadquery",
-                ]
-            )
 
-        import importlib
+def install_dependencies(
+    pip_executable: str,
+    callback: Callable[
+        [Union[BlendQueryInstallException, None]],
+        None,
+    ],
+):
+    def install():
+        print("install thread")
+        executable = os.path.abspath(sys.executable)
+        import subprocess
 
-        cadquery = importlib.import_module("cadquery")
-        return cadquery
-    except Exception as exception:
-        import traceback
+        subprocess.run([executable, "-m", "ensurepip", "--user"])
+        subprocess.run([executable, "-m", "pip", "install", "--upgrade", "pip"])
+        result = subprocess.run(
+            [
+                pip_executable,
+                "install",
+                "--pre",
+                "cadquery",
+            ]
+        )
+        if result.returncode == 0:
+            print("install succeeded")
+            callback(None)
+        else:
+            print("install failed")
+            if result.stderr is not None:
+                message = result.stderr.decode()
+            if result.stdout is not None:
+                message = result.stdout.decode()
+            message = "BlendQuery installation failed."
+            callback(BlendQueryInstallException(message))
 
-        traceback.print_exception(exception)
-        return None
+    install_thread = threading.Thread(target=install)
+    install_thread.start()

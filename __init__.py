@@ -4,37 +4,70 @@ bl_info = {
     "category": "Parametric",
 }
 
+import os
+import sys
+import venv
+import platform
+import traceback
+import importlib
+import importlib.util
+
 import bpy
 from bpy.app.handlers import persistent
+
 from . import polling
-import traceback
+
+if platform.system() == "Windows":
+    user_dir = os.environ["USERPROFILE"]
+else:
+    user_dir = os.environ["HOME"]
+venv_dir = os.path.join(user_dir, "blendquery")
+
+
+def setup_venv():
+    if not os.path.exists(os.path.join(venv_dir, "pyvenv.cfg")):
+        builder = venv.EnvBuilder(with_pip=True)
+        builder.create(venv_dir)
+
+    # if platform.system() == "Windows":
+    #     activation_script = os.path.join(venv_dir, "Scripts", "activate.bat")
+    # else:
+    #     activation_script = os.path.join(venv_dir, "bin", "activate")
+
+    # import subprocess
+
+    # subprocess.check_call(activation_script, shell=True)
+    # TODO: Is there a better way to do this?
+    sys.path.append(os.path.join(venv_dir, "Lib", "site-packages"))
 
 
 def register():
-    global cadquery, loading
-    from . import install
-
-    # TODO: Be less invasive around dependency installation, even though it's local to this addon
-    #       Perhaps we can show a UI button to install if it's not detected
-    cadquery = install.cadquery()
-
     bpy.utils.register_class(AttributePropertyGroup)
     bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(BlendQueryPropertyGroup)
-    bpy.utils.register_class(ResetOperator)
+    bpy.utils.register_class(BlendQueryInstallOperator)
+    bpy.utils.register_class(BlendQueryResetOperator)
     bpy.utils.register_class(BlendQueryPanel)
     bpy.types.Object.blendquery = bpy.props.PointerProperty(
         type=BlendQueryPropertyGroup
     )
-    if cadquery:
+
+    setup_venv()
+
+    global cadquery
+    if importlib.util.find_spec("cadquery") is not None:
+        cadquery = importlib.import_module("cadquery")
         bpy.app.handlers.load_post.append(initialise)
+    else:
+        cadquery = None
 
 
 def unregister():
     if cadquery:
         bpy.app.handlers.load_post.remove(initialise)
     bpy.utils.unregister_class(BlendQueryPanel)
-    bpy.utils.unregister_class(ResetOperator)
+    bpy.utils.unregister_class(BlendQueryResetOperator)
+    bpy.utils.unregister_class(BlendQueryInstallOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
     bpy.utils.unregister_class(ObjectPropertyGroup)
     bpy.utils.unregister_class(AttributePropertyGroup)
@@ -163,7 +196,37 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
     objects: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
 
 
-class ResetOperator(bpy.types.Operator):
+installing = False
+
+
+class BlendQueryInstallOperator(bpy.types.Operator):
+    bl_idname = "blendquery.install"
+    bl_label = "Install"
+
+    def execute(self, _):
+        from .install import install_dependencies, BlendQueryInstallException
+
+        def callback(result):
+            if isinstance(result, BlendQueryInstallException):
+                # TODO: Show report or pass to panel
+                print(str(result))
+            else:
+                global cadquery
+                # TODO: Force panel to update, perhaps through a global context property group
+                cadquery = importlib.import_module("cadquery")
+            global installing
+            installing = False
+
+        global installing
+        installing = True
+        pip_executable = os.path.join(
+            venv_dir, "Scripts" if os.name == "nt" else "bin", "pip"
+        )
+        install_dependencies(pip_executable, callback)
+        return {"FINISHED"}
+
+
+class BlendQueryResetOperator(bpy.types.Operator):
     bl_idname = "blendquery.reset"
     bl_label = "Reset"
 
@@ -175,7 +238,7 @@ class ResetOperator(bpy.types.Operator):
 
 # TODO: Pull UI components into separate functions
 class BlendQueryPanel(bpy.types.Panel):
-    bl_idname = "blendquery.panel"
+    bl_idname = "OBJECT_PT_BLENDQUERY_PANEL"
     bl_label = bl_info["name"]
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -187,10 +250,22 @@ class BlendQueryPanel(bpy.types.Panel):
         if not cadquery:
             box = layout.box()
             box.label(
-                text="Failed to install dependencies; See system console.", icon="ERROR"
+                text="BlendQuery requires additional dependencies to be installed",
+                icon="INFO",
             )
+            column = box.column()
+            # TODO: Move `installing` onto context property group so that UI can properly react to it changing
+            column.enabled = not installing
+            column.operator(
+                "blendquery.install",
+                text="Installing..." if installing else "Install",
+                icon="PACKAGE",
+            )
+            # box.label(
+            #     text="Failed to install dependencies; See system console.", icon="ERROR"
+            # )
 
-        column = layout.row()
+        column = layout.column()
         column.enabled = cadquery is not None
         if context.active_object:
             object = context.active_object
@@ -198,10 +273,11 @@ class BlendQueryPanel(bpy.types.Panel):
             column.prop(object.blendquery, "reload")
             # TODO: Show script error
             # Attributes
-            box = layout.box()
-            row = box.row()
-            row.label(text="Attributes")
-            row.operator("blendquery.reset", icon="FILE_REFRESH")
+            box = column.box()
+            box.label(text="Attributes")
+            # row = box.row()
+            # row.label(text="Attributes")
+            # row.operator("blendquery.reset", icon="FILE_REFRESH")
             for attribute in object.blendquery.attributes:
                 if not attribute.defined:
                     continue
