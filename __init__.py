@@ -88,6 +88,7 @@ def initialise(_=None):
 
 
 disposers = {}
+script_exception = None
 
 
 def update_object(object: bpy.types.Object):
@@ -104,6 +105,8 @@ def update_object(object: bpy.types.Object):
     if script is not None and reload is True:
 
         def refresh():
+            global script_exception
+            script_exception = None
             # If there are any issues in the script we just end early due to try/except
             try:
                 # TODO: Pull all this attribute wrangling into its own function
@@ -141,7 +144,7 @@ def update_object(object: bpy.types.Object):
 
                 loading.load(object)
             except Exception as exception:
-                traceback.print_exception(exception)
+                script_exception = exception
 
         refresh()
         disposers[object] = polling.watch_for_text_changes(script, refresh)
@@ -208,11 +211,11 @@ class BlendQueryInstallOperator(bpy.types.Operator):
 
         def callback(result):
             if isinstance(result, BlendQueryInstallException):
-                # TODO: Show report or pass to panel
-                print(str(result))
+                # TODO: Display this error to user
+                pass
             else:
                 global cadquery
-                # TODO: Force panel to update, perhaps through a global context property group
+                # TODO: Force panel to re-render
                 cadquery = importlib.import_module("cadquery")
             global installing
             installing = False
@@ -250,34 +253,55 @@ class BlendQueryPanel(bpy.types.Panel):
         if not cadquery:
             box = layout.box()
             box.label(
-                text="BlendQuery requires additional dependencies to be installed",
                 icon="INFO",
+                text="BlendQuery requires the following dependencies to be installed:",
             )
+            box = row.column()
+            box.label(text="• CadQuery")
+            box.label(text="• Build123d")
             column = box.column()
-            # TODO: Move `installing` onto context property group so that UI can properly react to it changing
             column.enabled = not installing
             column.operator(
                 "blendquery.install",
-                text="Installing..." if installing else "Install",
+                text="Installing dependencies..."
+                if installing
+                else "Install dependencies",
                 icon="PACKAGE",
             )
-            # box.label(
-            #     text="Failed to install dependencies; See system console.", icon="ERROR"
-            # )
+            return
 
-        column = layout.column()
-        column.enabled = cadquery is not None
         if context.active_object:
             object = context.active_object
-            column.prop(object.blendquery, "script")
-            column.prop(object.blendquery, "reload")
-            # TODO: Show script error
+            row = layout.row()
+            row.prop(object.blendquery, "script")
+            row.prop(object.blendquery, "reload")
+
+            if script_exception is not None:
+                import re
+
+                traceback_strings = traceback.format_exception(
+                    type(script_exception),
+                    script_exception,
+                    script_exception.__traceback__,
+                )
+                traceback_text = "".join(traceback_strings)
+                pattern = r'File "<string>", line \d+\n([\s\S]*)'
+                match = re.search(pattern, traceback_text, re.MULTILINE | re.DOTALL)
+                if match:
+                    text = match.group(1)
+                    lines = text.splitlines()
+                    box = layout.box()
+                    box.label(
+                        icon="ERROR",
+                        text="Traceback (most recent call last):",
+                    )
+                    for line in lines:
+                        print(line)
+                        box.label(text=line)
+
             # Attributes
-            box = column.box()
+            box = layout.box()
             box.label(text="Attributes")
-            # row = box.row()
-            # row.label(text="Attributes")
-            # row.operator("blendquery.reset", icon="FILE_REFRESH")
             for attribute in object.blendquery.attributes:
                 if not attribute.defined:
                     continue
