@@ -11,11 +11,12 @@ import platform
 import traceback
 import importlib
 import importlib.util
+from typing import Union
 
 import bpy
 from bpy.app.handlers import persistent
 
-from . import polling
+from . import poll
 
 if platform.system() == "Windows":
     user_dir = os.environ["USERPROFILE"]
@@ -29,14 +30,6 @@ def setup_venv():
         builder = venv.EnvBuilder(with_pip=True)
         builder.create(venv_dir)
 
-    # if platform.system() == "Windows":
-    #     activation_script = os.path.join(venv_dir, "Scripts", "activate.bat")
-    # else:
-    #     activation_script = os.path.join(venv_dir, "bin", "activate")
-
-    # import subprocess
-
-    # subprocess.check_call(activation_script, shell=True)
     # TODO: Is there a better way to do this?
     sys.path.append(os.path.join(venv_dir, "Lib", "site-packages"))
 
@@ -46,7 +39,6 @@ def register():
     bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(BlendQueryPropertyGroup)
     bpy.utils.register_class(BlendQueryInstallOperator)
-    bpy.utils.register_class(BlendQueryResetOperator)
     bpy.utils.register_class(BlendQueryPanel)
     bpy.types.Object.blendquery = bpy.props.PointerProperty(
         type=BlendQueryPropertyGroup
@@ -66,7 +58,6 @@ def unregister():
     if cadquery:
         bpy.app.handlers.load_post.remove(initialise)
     bpy.utils.unregister_class(BlendQueryPanel)
-    bpy.utils.unregister_class(BlendQueryResetOperator)
     bpy.utils.unregister_class(BlendQueryInstallOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
     bpy.utils.unregister_class(ObjectPropertyGroup)
@@ -94,66 +85,44 @@ script_exception = None
 # TODO: Turn this into a modal operator
 def update_object(object: bpy.types.Object):
     # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
-    from . import loading
+    from .build import build
+    from .parse import parse_script, map_attributes
 
     blendquery = object.blendquery
-    script, reload, attributes, objects = (
+    script, reload, attribute_pointers, object_pointers = (
         blendquery.script,
         blendquery.reload,
-        blendquery.attributes,
-        blendquery.objects,
+        blendquery.attribute_pointers,
+        blendquery.object_pointers,
     )
     if script is not None and reload is True:
 
         def refresh():
             global script_exception
             script_exception = None
-            # If there are any issues in the script we just end early due to try/except
             try:
-                # TODO: Pull all this attribute wrangling into its own function
-                # TODO: We should share this module with `loading.load` and avoid two script evaluations
-                module = script.as_module()
-                visible_attributes = {
-                    key for key in dir(module) if not key.startswith("_")
+                locals = parse_script(script.as_string(), attribute_pointers)
+                map_attributes(locals, attribute_pointers)
+                cadquery_objects = {
+                    name: value
+                    for name, value in locals.items()
+                    if isinstance(
+                        value,
+                        Union[cadquery.Workplane, cadquery.Shape, cadquery.Assembly],
+                    )
                 }
-
-                for attribute in attributes:
-                    attribute.defined = attribute.key in visible_attributes
-
-                for key in visible_attributes:
-                    value = getattr(module, key)
-                    type_name = value.__class__.__name__
-                    if type_name in TYPE_TO_PROPERTY:
-                        # Find existing property group that matches key and type
-                        attribute_property_group = next(
-                            (
-                                attribute
-                                for attribute in attributes
-                                if attribute.key == key and attribute.type == type_name
-                            ),
-                            None,
-                        )
-                        # Do not add property group if one matching already exists
-                        if attribute_property_group is not None:
-                            continue
-
-                        attribute_property_group = attributes.add()
-                        attribute_property_group.key = key
-                        attribute_property_group.type = type_name
-                        property = TYPE_TO_PROPERTY[type_name]
-                        setattr(attribute_property_group, property, value)
-
-                loading.load(object)
+                build(cadquery_objects, object_pointers, object)
             except Exception as exception:
+                traceback.print_exception(exception)
                 script_exception = exception
                 # TODO: this stinks :)
                 redraw_ui()
 
         refresh()
-        disposers[object] = polling.watch_for_text_changes(script, refresh)
+        disposers[object] = poll.watch_for_text_changes(script, refresh)
     else:
         if script is None:
-            loading.unload(objects)
+            build.clean(object_pointers)
         disposer = disposers[object]
         if callable(disposer):
             disposer()
@@ -198,8 +167,8 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
 
     script: bpy.props.PointerProperty(name="Script", type=bpy.types.Text, update=update)
     reload: bpy.props.BoolProperty(name="Hot Reload", default=True, update=update)
-    attributes: bpy.props.CollectionProperty(type=AttributePropertyGroup)
-    objects: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
+    attribute_pointers: bpy.props.CollectionProperty(type=AttributePropertyGroup)
+    object_pointers: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
 
 
 installing = False
@@ -209,7 +178,7 @@ install_exception = None
 class BlendQueryInstallOperator(bpy.types.Operator):
     bl_idname = "blendquery.install"
     bl_label = "Install"
-    bl_description = "Installs all dependencies required for BlendQuery to operate."
+    bl_description = "Installs BlendQuery required dependencies."
 
     def invoke(self, context, event):
         self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
@@ -246,16 +215,6 @@ class BlendQueryInstallOperator(bpy.types.Operator):
             redraw_ui()
             return {"FINISHED"}
         return {"PASS_THROUGH"}
-
-
-class BlendQueryResetOperator(bpy.types.Operator):
-    bl_idname = "blendquery.reset"
-    bl_label = "Reset"
-
-    def execute(self, context):
-        if context.active_object:
-            context.active_object.blendquery.attributes.clear()
-        return {"FINISHED"}
 
 
 def redraw_ui():
@@ -316,20 +275,20 @@ class BlendQueryPanel(bpy.types.Panel):
                 pattern = r'File "<string>", line \d+\n([\s\S]*)'
                 match = re.search(pattern, traceback_text, re.MULTILINE | re.DOTALL)
                 if match:
-                    install_text = match.group(1)
-                    lines = install_text.splitlines()
                     box = layout.box()
                     box.label(
                         icon="ERROR",
                         text="Traceback (most recent call last):",
                     )
+                    install_text = match.group(1)
+                    lines = install_text.splitlines()
                     for line in lines:
                         print(line)
                         box.label(text=line)
 
             attributes = [
                 attribute
-                for attribute in object.blendquery.attributes
+                for attribute in object.blendquery.attribute_pointers
                 if attribute.defined
             ]
             if len(attributes) > 0:
