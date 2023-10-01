@@ -91,6 +91,7 @@ disposers = {}
 script_exception = None
 
 
+# TODO: Turn this into a modal operator
 def update_object(object: bpy.types.Object):
     # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
     from . import loading
@@ -145,6 +146,8 @@ def update_object(object: bpy.types.Object):
                 loading.load(object)
             except Exception as exception:
                 script_exception = exception
+                # TODO: this stinks :)
+                redraw_ui()
 
         refresh()
         disposers[object] = polling.watch_for_text_changes(script, refresh)
@@ -200,33 +203,49 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
 
 
 installing = False
+install_exception = None
 
 
 class BlendQueryInstallOperator(bpy.types.Operator):
     bl_idname = "blendquery.install"
     bl_label = "Install"
+    bl_description = "Installs all dependencies required for BlendQuery to operate."
 
-    def execute(self, _):
+    def invoke(self, context, event):
+        self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
+        context.window_manager.modal_handler_add(self)
+
         from .install import install_dependencies, BlendQueryInstallException
 
         def callback(result):
             if isinstance(result, BlendQueryInstallException):
-                # TODO: Display this error to user
-                pass
+                global install_exception
+                install_exception = result
             else:
                 global cadquery
-                # TODO: Force panel to re-render
                 cadquery = importlib.import_module("cadquery")
             global installing
             installing = False
 
-        global installing
+        global installing, install_exception
         installing = True
+        install_exception = None
         pip_executable = os.path.join(
             venv_dir, "Scripts" if os.name == "nt" else "bin", "pip"
         )
-        install_dependencies(pip_executable, callback)
-        return {"FINISHED"}
+        self.thread = install_dependencies(pip_executable, callback)
+
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if not self.thread.is_alive():
+            if install_exception:
+                self.report({"ERROR"}, str(install_exception))
+            context.window_manager.event_timer_remove(self.timer)
+            # TODO: this stinks :)
+            redraw_ui()
+            return {"FINISHED"}
+        return {"PASS_THROUGH"}
 
 
 class BlendQueryResetOperator(bpy.types.Operator):
@@ -239,6 +258,10 @@ class BlendQueryResetOperator(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def redraw_ui():
+    bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+
+
 # TODO: Pull UI components into separate functions
 class BlendQueryPanel(bpy.types.Panel):
     bl_idname = "OBJECT_PT_BLENDQUERY_PANEL"
@@ -249,25 +272,30 @@ class BlendQueryPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        # Install error
         if not cadquery:
             box = layout.box()
             box.label(
                 icon="INFO",
                 text="BlendQuery requires the following dependencies to be installed:",
             )
-            box = row.column()
-            box.label(text="• CadQuery")
-            box.label(text="• Build123d")
+            box.label(text="    • CadQuery")
+            box.label(text="    • Build123d")
             column = box.column()
             column.enabled = not installing
+            install_text = (
+                "Installing dependencies..." if installing else "Install dependencies"
+            )
             column.operator(
                 "blendquery.install",
-                text="Installing dependencies..."
-                if installing
-                else "Install dependencies",
                 icon="PACKAGE",
+                text=install_text,
             )
+            if install_exception is not None:
+                box = box.box()
+                box.label(
+                    icon="ERROR",
+                    text="Installation failed. Please see system console for more information.",
+                )
             return
 
         if context.active_object:
@@ -288,8 +316,8 @@ class BlendQueryPanel(bpy.types.Panel):
                 pattern = r'File "<string>", line \d+\n([\s\S]*)'
                 match = re.search(pattern, traceback_text, re.MULTILINE | re.DOTALL)
                 if match:
-                    text = match.group(1)
-                    lines = text.splitlines()
+                    install_text = match.group(1)
+                    lines = install_text.splitlines()
                     box = layout.box()
                     box.label(
                         icon="ERROR",
@@ -299,12 +327,15 @@ class BlendQueryPanel(bpy.types.Panel):
                         print(line)
                         box.label(text=line)
 
-            # Attributes
-            box = layout.box()
-            box.label(text="Attributes")
-            for attribute in object.blendquery.attributes:
-                if not attribute.defined:
-                    continue
-                row = box.row()
-                property = TYPE_TO_PROPERTY[attribute.type]
-                row.prop(attribute, property, text=attribute.key)
+            attributes = [
+                attribute
+                for attribute in object.blendquery.attributes
+                if attribute.defined
+            ]
+            if len(attributes) > 0:
+                box = layout.box()
+                box.label(text="Attributes")
+                for attribute in attributes:
+                    row = box.row()
+                    property = TYPE_TO_PROPERTY[attribute.type]
+                    row.prop(attribute, property, text=attribute.key)

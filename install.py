@@ -17,31 +17,22 @@ def install_dependencies(
     ],
 ):
     def install():
-        print("install thread")
-        executable = os.path.abspath(sys.executable)
         import subprocess
 
-        subprocess.run([executable, "-m", "ensurepip", "--user"])
-        subprocess.run([executable, "-m", "pip", "install", "--upgrade", "pip"])
         result = subprocess.run(
             [
                 pip_executable,
                 "install",
                 "--pre",
                 "cadquery",
-            ]
+            ],
+            stderr=subprocess.PIPE,
         )
         if result.returncode == 0:
-            print("install succeeded")
             callback(None)
         else:
-            print("install failed")
-            if result.stderr is not None:
-                message = result.stderr.decode()
-            if result.stdout is not None:
-                message = result.stdout.decode()
-            message = "BlendQuery installation failed."
-            callback(BlendQueryInstallException(message))
+            callback(BlendQueryInstallException(result.stderr.decode()))
 
-    install_thread = threading.Thread(target=install)
-    install_thread.start()
+    thread = threading.Thread(target=install)
+    thread.start()
+    return thread
