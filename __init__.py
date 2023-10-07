@@ -85,7 +85,7 @@ script_exception = None
 # TODO: Turn this into a modal operator
 def update_object(object: bpy.types.Object):
     # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
-    from .build import build
+    from .build import build, clean
     from .parse import parse_script, map_attributes
 
     blendquery = object.blendquery
@@ -122,7 +122,7 @@ def update_object(object: bpy.types.Object):
         disposers[object] = poll.watch_for_text_changes(script, refresh)
     else:
         if script is None:
-            build.clean(object_pointers)
+            clean(object_pointers)
         disposer = disposers[object]
         if callable(disposer):
             disposer()
