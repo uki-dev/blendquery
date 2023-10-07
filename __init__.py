@@ -163,6 +163,7 @@ class ObjectPropertyGroup(bpy.types.PropertyGroup):
 
 class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
     def update(self, _):
+        # TODO: debounce
         update_object(self.id_data)
 
     script: bpy.props.PointerProperty(name="Script", type=bpy.types.Text, update=update)
