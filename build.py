@@ -7,6 +7,11 @@ import re
 Object = Union[cadquery.Workplane, cadquery.Shape, cadquery.Assembly]
 
 
+class BlendQueryBuildException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
 def build(cadquery_objects, object_pointers, root):
     # Store current selection
     active = bpy.context.view_layer.objects.active
@@ -40,44 +45,34 @@ def clean(object_pointers):
 
 # TODO: Reimplement material linking
 def build_object(object: Object, name: str, parent, object_pointers):
-    # TODO: Tidy up this mess
-    if isinstance(object, cadquery.Workplane):
-        compound = cadquery.exporters.utils.toCompound(object)
-        blender_object = build_shape(compound, name)
-        blender_object.parent = parent
-        # object.data.materials.append(material)
-        property_group = object_pointers.add()
-        property_group.object = blender_object
-    elif isinstance(object, cadquery.Shape):
-        blender_object = build_shape(object, name)
-        blender_object.parent = parent
-        # object.data.materials.append(material)
-        property_group = object_pointers.add()
-        property_group.object = blender_object
-    elif isinstance(object, cadquery.Assembly):
-        blender_object = bpy.data.objects.new(
-            name if object.parent is None else object.name, None
+    if isinstance(object, cadquery.Assembly):
+        assembly_object = create_blender_object(
+            name if object.parent is None else object.name,
+            assembly_object,
+            object_pointers,
         )
-        blender_object.parent = parent
-        property_group = object_pointers.add()
-        property_group.object = blender_object
-        bpy.context.scene.collection.objects.link(blender_object)
-        # try:
-        #     material_name = assembly.metadata["material"]
-        #     material = bpy.data.materials[material_name]
-        # except:
-        #     pass
         for shape in object.shapes:
-            build_object(shape, name, blender_object, object_pointers)
+            build_object(shape, name, assembly_object, object_pointers)
         for child in object.children:
-            build_object(child, name, blender_object, object_pointers)
+            build_object(child, name, assembly_object, object_pointers)
+        return
+
+    if isinstance(object, cadquery.Shape):
+        shape = object
+    elif isinstance(object, cadquery.Workplane):
+        shape = cadquery.exporters.utils.toCompound(object)
     else:
-        raise TypeError("Unsupported object type")
+        raise BlendQueryBuildException(
+            "Failed to build object; Unsupported object type " + str(type(object))
+        )
+    build_shape(shape, name, parent, object_pointers)
 
 
 def build_shape(
     shape: cadquery.Shape,
     name: str,
+    parent,
+    object_pointers,
     tolerance=0.1,
     angularTolerance=0.1,
 ):
@@ -88,6 +83,16 @@ def build_shape(
     mesh.from_pydata(vertices, [], faces)
     mesh.update()
 
-    object = bpy.data.objects.new(name, mesh)
+    return create_blender_object(name, parent, object_pointers, mesh)
+
+
+def create_blender_object(name: str, parent, object_pointers, mesh):
+    object = bpy.data.objects.new(
+        name,
+        mesh,
+    )
+    object.parent = parent
+    property_group = object_pointers.add()
+    property_group.object = object
     bpy.context.scene.collection.objects.link(object)
     return object
