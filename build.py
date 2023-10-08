@@ -43,7 +43,6 @@ def clean(object_pointers):
     object_pointers.clear()
 
 
-# TODO: Reimplement material linking
 # TODO: return a list of objects created by build and pull `object_pointers` into a higher level
 def build_object(object: Object, name: str, parent, object_pointers, material=None):
     try:
