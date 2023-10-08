@@ -44,17 +44,24 @@ def clean(object_pointers):
 
 
 # TODO: Reimplement material linking
-def build_object(object: Object, name: str, parent, object_pointers):
+# TODO: return a list of objects created by build and pull `object_pointers` into a higher level
+def build_object(object: Object, name: str, parent, object_pointers, material=None):
+    try:
+        material = bpy.data.materials[object.material]
+    except:
+        pass
+
     if isinstance(object, cadquery.Assembly):
+        name = name if object.parent is None else object.name
         assembly_object = create_blender_object(
-            name if object.parent is None else object.name,
+            name,
             assembly_object,
             object_pointers,
         )
         for shape in object.shapes:
-            build_object(shape, name, assembly_object, object_pointers)
+            build_object(shape, name, assembly_object, object_pointers, material)
         for child in object.children:
-            build_object(child, name, assembly_object, object_pointers)
+            build_object(child, name, assembly_object, object_pointers, material)
         return
 
     if isinstance(object, cadquery.Shape):
@@ -65,7 +72,7 @@ def build_object(object: Object, name: str, parent, object_pointers):
         raise BlendQueryBuildException(
             "Failed to build object; Unsupported object type " + str(type(object))
         )
-    build_shape(shape, name, parent, object_pointers)
+    build_shape(shape, name, parent, object_pointers, material)
 
 
 def build_shape(
@@ -73,6 +80,7 @@ def build_shape(
     name: str,
     parent,
     object_pointers,
+    material=None,
     tolerance=0.1,
     angularTolerance=0.1,
 ):
@@ -83,10 +91,19 @@ def build_shape(
     mesh.from_pydata(vertices, [], faces)
     mesh.update()
 
-    return create_blender_object(name, parent, object_pointers, mesh)
+    object = create_blender_object(name, parent, object_pointers, mesh)
+    # TODO: could this live at a higher level?
+    if material is not None:
+        object.data.materials.append(material)
+    return object
 
 
-def create_blender_object(name: str, parent, object_pointers, mesh):
+def create_blender_object(
+    name: str,
+    parent,
+    object_pointers,
+    mesh=None,
+):
     object = bpy.data.objects.new(
         name,
         mesh,
