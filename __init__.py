@@ -96,7 +96,7 @@ def update_object(object: bpy.types.Object):
         blendquery.object_pointers,
     )
     if script is not None and reload is True:
-
+        # TODO: pull this out
         def refresh():
             global script_exception
             script_exception = None
