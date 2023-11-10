@@ -1,10 +1,17 @@
 # TODO: fix typing
 import bpy
 import cadquery
+import build123d
 from typing import Union, List
 import re
 
-Object = Union[cadquery.Workplane, cadquery.Shape, cadquery.Assembly]
+Shape = Union[cadquery.Shape, build123d.Shape]
+Object = Union[
+    Shape,
+    cadquery.Workplane,
+    cadquery.Assembly,
+    build123d.Builder,
+]
 
 
 class BlendQueryBuildException(Exception):
@@ -63,10 +70,12 @@ def build_object(object: Object, name: str, parent, object_pointers, material=No
             build_object(child, name, assembly_object, object_pointers, material)
         return
 
-    if isinstance(object, cadquery.Shape):
+    if isinstance(object, Shape):
         shape = object
     elif isinstance(object, cadquery.Workplane):
         shape = cadquery.exporters.utils.toCompound(object)
+    elif isinstance(object, build123d.Builder):
+        shape = object._obj
     else:
         raise BlendQueryBuildException(
             "Failed to build object; Unsupported object type " + str(type(object))
@@ -75,7 +84,7 @@ def build_object(object: Object, name: str, parent, object_pointers, material=No
 
 
 def build_shape(
-    shape: cadquery.Shape,
+    shape: Shape,
     name: str,
     parent,
     object_pointers,
@@ -84,7 +93,10 @@ def build_shape(
     angularTolerance=0.1,
 ):
     vertices, faces = shape.tessellate(tolerance, angularTolerance)
-    vertices = [vertex.toTuple() for vertex in vertices]
+    vertices = [
+        vertex.toTuple() if isinstance(vertex, cadquery.Vertex) else vertex.to_tuple()
+        for vertex in vertices
+    ]
 
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(vertices, [], faces)

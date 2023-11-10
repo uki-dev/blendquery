@@ -34,6 +34,17 @@ def setup_venv():
     sys.path.append(os.path.join(venv_dir, "Lib", "site-packages"))
 
 
+cadquery = None
+build123d = None
+
+
+def installed():
+    return (
+        importlib.util.find_spec("cadquery") is not None
+        and importlib.util.find_spec("build123d") is not None
+    )
+
+
 def register():
     bpy.utils.register_class(AttributePropertyGroup)
     bpy.utils.register_class(ObjectPropertyGroup)
@@ -46,17 +57,15 @@ def register():
 
     setup_venv()
 
-    global cadquery
-    if importlib.util.find_spec("cadquery") is not None:
+    if installed():
+        global cadquery, build123d
         cadquery = importlib.import_module("cadquery")
+        build123d = importlib.import_module("build123d")
         bpy.app.handlers.load_post.append(initialise)
-    else:
-        cadquery = None
 
 
 def unregister():
-    if cadquery:
-        bpy.app.handlers.load_post.remove(initialise)
+    bpy.app.handlers.load_post.remove(initialise)
     bpy.utils.unregister_class(BlendQueryPanel)
     bpy.utils.unregister_class(BlendQueryInstallOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
@@ -85,7 +94,7 @@ script_exception = None
 # TODO: Turn this into a modal operator
 def update_object(object: bpy.types.Object):
     # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
-    from .build import build, clean
+    from .build import build, clean, Object
     from .parse import parse_script, map_attributes
 
     blendquery = object.blendquery
@@ -102,16 +111,13 @@ def update_object(object: bpy.types.Object):
             script_exception = None
             try:
                 locals = parse_script(script.as_string(), attribute_pointers)
-                map_attributes(locals, attribute_pointers)
-                cadquery_objects = {
+                # map_attributes(locals, attribute_pointers)
+                script_objects = {
                     name: value
                     for name, value in locals.items()
-                    if isinstance(
-                        value,
-                        Union[cadquery.Workplane, cadquery.Shape, cadquery.Assembly],
-                    )
+                    if isinstance(value, Object)
                 }
-                build(cadquery_objects, object_pointers, object)
+                build(script_objects, object_pointers, object)
             except Exception as exception:
                 traceback.print_exception(exception)
                 script_exception = exception
@@ -192,8 +198,9 @@ class BlendQueryInstallOperator(bpy.types.Operator):
                 global install_exception
                 install_exception = result
             else:
-                global cadquery
+                global cadquery, build123d
                 cadquery = importlib.import_module("cadquery")
+                build123d = importlib.import_module("build123d")
             global installing
             installing = False
 
@@ -232,7 +239,7 @@ class BlendQueryPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        if not cadquery:
+        if not installed():
             box = layout.box()
             box.label(
                 icon="INFO",
