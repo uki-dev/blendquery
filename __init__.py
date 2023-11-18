@@ -59,6 +59,7 @@ def register():
     bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(BlendQueryPropertyGroup)
     bpy.utils.register_class(BlendQueryInstallOperator)
+    bpy.utils.register_class(BlendQueryUpdateOperator)
     bpy.utils.register_class(BlendQueryPanel)
     bpy.types.Object.blendquery = bpy.props.PointerProperty(
         type=BlendQueryPropertyGroup
@@ -74,6 +75,7 @@ def register():
 def unregister():
     bpy.app.handlers.load_post.remove(initialise)
     bpy.utils.unregister_class(BlendQueryPanel)
+    bpy.utils.unregister_class(BlendQueryUpdateOperator)
     bpy.utils.unregister_class(BlendQueryInstallOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
     bpy.utils.unregister_class(ObjectPropertyGroup)
@@ -88,54 +90,35 @@ def initialise(_=None):
     for object in bpy.data.objects:
         objects.append(object)
     for object in objects:
-        try:
-            update_object(object)
-        except:
-            pass
+        update(object)
 
 
 disposers = {}
-script_exception = None
 
 
-# TODO: Turn this into a modal operator
-def update_object(object: bpy.types.Object):
-    # TODO: Until we can somehow declare the `cadquery` module upfront, any files importing it must be imported AFTER we install it
-    from .build import build, clean, Object
-    from .parse import parse_script, map_attributes
-
+def update(object):
     blendquery = object.blendquery
-    script, reload, attribute_pointers, object_pointers = (
+    script, reload = (
         blendquery.script,
         blendquery.reload,
-        blendquery.attribute_pointers,
-        blendquery.object_pointers,
     )
-    if script is not None and reload is True:
-        # TODO: pull this out
-        def refresh():
-            global script_exception
-            script_exception = None
-            try:
-                locals = parse_script(script.as_string(), attribute_pointers)
-                # map_attributes(locals, attribute_pointers)
-                script_objects = {
-                    name: value
-                    for name, value in locals.items()
-                    if isinstance(value, Object)
-                }
-                build(script_objects, object_pointers, object)
-            except Exception as exception:
-                traceback.print_exception(exception)
-                script_exception = exception
-                # TODO: this stinks :)
-                redraw_ui()
 
-        refresh()
-        disposers[object] = poll.watch_for_text_changes(script, refresh)
-    else:
-        if script is None:
-            clean(object_pointers)
+    def invoke_operator():
+        print("object", object)
+        context_override = bpy.context.copy()
+        context_override["active_object"] = object
+        with bpy.context.temp_override(**context_override):
+            bpy.ops.blendquery.update()
+
+    if script is not None and reload is True:
+        if not object in disposers:
+            invoke_operator()
+            # TODO: Debounce
+            disposers[object] = poll.watch_for_text_changes(
+                script,
+                lambda: invoke_operator(),
+            )
+    elif object in disposers:
         disposer = disposers[object]
         if callable(disposer):
             disposer()
@@ -150,9 +133,8 @@ TYPE_TO_PROPERTY = {
 
 
 class AttributePropertyGroup(bpy.types.PropertyGroup):
-    def update(self, _):
-        # TODO: Debounce
-        update_object(self.id_data)
+    def _update(self, _):
+        update(self.id_data)
 
     key: bpy.props.StringProperty()
     type: bpy.props.EnumProperty(
@@ -163,10 +145,10 @@ class AttributePropertyGroup(bpy.types.PropertyGroup):
             ("str", "String", "String Type"),
         ],
     )
-    bool_value: bpy.props.BoolProperty(update=update)
-    int_value: bpy.props.IntProperty(update=update)
-    float_value: bpy.props.FloatProperty(update=update)
-    str_value: bpy.props.StringProperty(update=update)
+    bool_value: bpy.props.BoolProperty(update=_update)
+    int_value: bpy.props.IntProperty(update=_update)
+    float_value: bpy.props.FloatProperty(update=_update)
+    str_value: bpy.props.StringProperty(update=_update)
     defined: bpy.props.BoolProperty(default=True)
 
 
@@ -175,14 +157,69 @@ class ObjectPropertyGroup(bpy.types.PropertyGroup):
 
 
 class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
-    def update(self, _):
-        # TODO: debounce
-        update_object(self.id_data)
+    def _update(self, _):
+        update(self.id_data)
 
-    script: bpy.props.PointerProperty(name="Script", type=bpy.types.Text, update=update)
-    reload: bpy.props.BoolProperty(name="Hot Reload", default=True, update=update)
+    script: bpy.props.PointerProperty(
+        name="Script", type=bpy.types.Text, update=_update
+    )
+    reload: bpy.props.BoolProperty(name="Hot Reload", default=True, update=_update)
     attribute_pointers: bpy.props.CollectionProperty(type=AttributePropertyGroup)
     object_pointers: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
+
+
+class BlendQueryUpdateOperator(bpy.types.Operator):
+    bl_idname = "blendquery.update"
+    bl_label = "BlendQuery Update"
+
+    object = None
+
+    def modal(self, context, event):
+        object = self.object
+        blendquery = object.blendquery
+        script, attribute_pointers, object_pointers = (
+            blendquery.script,
+            blendquery.attribute_pointers,
+            blendquery.object_pointers,
+        )
+        try:
+            locals = parse_script(script.as_string(), attribute_pointers)
+            # map_attributes(locals, attribute_pointers)
+            script_objects = {
+                name: value
+                for name, value in locals.items()
+                if isinstance(value, Object)
+            }
+            build(script_objects, object_pointers, object)
+        except Exception as exception:
+            import re
+
+            # "ERROR" type opens a input blocking pop-up, so we report using "INFO"
+            stack_trace_str = re.search(
+                r'File "<string>",\s*(.*(?:\n.*)*)',
+                "".join(
+                    traceback.format_exception(
+                        type(exception),
+                        exception,
+                        exception.__traceback__,
+                    )
+                ),
+                re.MULTILINE | re.DOTALL,
+            ).group(1)
+            self.report(
+                {"WARNING"},
+                f"Failed to generate BlendQuery object: {stack_trace_str}",
+            )
+            # Info area seems to lag behind so we must force it to redraw
+            # TODO: Find a way to avoid this
+            redraw_info_area()
+        return {"FINISHED"}
+
+    def execute(self, context):
+        self.object = context.active_object
+        # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
 
 
 installing = False
@@ -234,6 +271,12 @@ def redraw_ui():
     bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
 
 
+def redraw_info_area():
+    for area in bpy.context.screen.areas:
+        if area.type == "INFO":
+            area.tag_redraw()
+
+
 # TODO: Pull UI components into separate functions
 class BlendQueryPanel(bpy.types.Panel):
     bl_idname = "OBJECT_PT_BLENDQUERY_PANEL"
@@ -275,29 +318,6 @@ class BlendQueryPanel(bpy.types.Panel):
             row = layout.row()
             row.prop(object.blendquery, "script")
             row.prop(object.blendquery, "reload")
-
-            if script_exception is not None:
-                import re
-
-                traceback_strings = traceback.format_exception(
-                    type(script_exception),
-                    script_exception,
-                    script_exception.__traceback__,
-                )
-                traceback_text = "".join(traceback_strings)
-                pattern = r'File "<string>", line \d+\n([\s\S]*)'
-                match = re.search(pattern, traceback_text, re.MULTILINE | re.DOTALL)
-                if match:
-                    box = layout.box()
-                    box.label(
-                        icon="ERROR",
-                        text="Traceback (most recent call last):",
-                    )
-                    install_text = match.group(1)
-                    lines = install_text.splitlines()
-                    for line in lines:
-                        print(line)
-                        box.label(text=line)
 
             attributes = [
                 attribute
