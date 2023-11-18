@@ -38,7 +38,16 @@ cadquery = None
 build123d = None
 
 
-def installed():
+def import_dependencies():
+    global cadquery, build123d
+    global build, Object, parse_script
+    cadquery = importlib.import_module("cadquery")
+    build123d = importlib.import_module("build123d")
+    from .build import build, Object
+    from .parse import parse_script
+
+
+def are_dependencies_installed():
     return (
         importlib.util.find_spec("cadquery") is not None
         and importlib.util.find_spec("build123d") is not None
@@ -57,10 +66,8 @@ def register():
 
     setup_venv()
 
-    if installed():
-        global cadquery, build123d
-        cadquery = importlib.import_module("cadquery")
-        build123d = importlib.import_module("build123d")
+    if are_dependencies_installed():
+        import_dependencies()
         bpy.app.handlers.load_post.append(initialise)
 
 
@@ -198,9 +205,7 @@ class BlendQueryInstallOperator(bpy.types.Operator):
                 global install_exception
                 install_exception = result
             else:
-                global cadquery, build123d
-                cadquery = importlib.import_module("cadquery")
-                build123d = importlib.import_module("build123d")
+                import_dependencies()
             global installing
             installing = False
 
@@ -239,7 +244,7 @@ class BlendQueryPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        if not installed():
+        if not are_dependencies_installed():
             box = layout.box()
             box.label(
                 icon="INFO",
