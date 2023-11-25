@@ -40,11 +40,10 @@ build123d = None
 
 def import_dependencies():
     global cadquery, build123d
-    global build, Object, parse_script
+    global parse, build, Object
     cadquery = importlib.import_module("cadquery")
     build123d = importlib.import_module("build123d")
-    from .build import build, Object
-    from .parse import parse_script
+    from .blendquery import parse, build, Object
 
 
 def are_dependencies_installed():
@@ -55,7 +54,6 @@ def are_dependencies_installed():
 
 
 def register():
-    bpy.utils.register_class(AttributePropertyGroup)
     bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(BlendQueryPropertyGroup)
     bpy.utils.register_class(BlendQueryInstallOperator)
@@ -73,11 +71,11 @@ def register():
 
     if are_dependencies_installed():
         import_dependencies()
-        bpy.app.handlers.load_post.append(initialise)
+        bpy.app.handlers.load_post.append(initialise_scene)
 
 
 def unregister():
-    bpy.app.handlers.load_post.remove(initialise)
+    bpy.app.handlers.load_post.remove(initialise_scene)
     del bpy.types.Object.blendquery
     del bpy.types.WindowManager.blendquery
     bpy.utils.unregister_class(BlendQueryWindowPropertyGroup)
@@ -86,11 +84,10 @@ def unregister():
     bpy.utils.unregister_class(BlendQueryInstallOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
     bpy.utils.unregister_class(ObjectPropertyGroup)
-    bpy.utils.unregister_class(AttributePropertyGroup)
 
 
 @persistent
-def initialise(_=None):
+def initialise_scene(_=None):
     # TODO: find a cleaner solution than this
     # as `update_object` may delete objects from `bpy.data.objects` to perform cleanup, iterate on a copy of it instead to avoid crashes due to `EXCEPTION_ACCESS_VIOLATION`
     objects = []
@@ -130,34 +127,6 @@ def update(object):
             disposer()
 
 
-TYPE_TO_PROPERTY = {
-    "bool": "bool_value",
-    "int": "int_value",
-    "float": "float_value",
-    "str": "str_value",
-}
-
-
-class AttributePropertyGroup(bpy.types.PropertyGroup):
-    def _update(self, _):
-        update(self.id_data)
-
-    key: bpy.props.StringProperty()
-    type: bpy.props.EnumProperty(
-        items=[
-            ("bool", "Boolean", "Boolean Type"),
-            ("int", "Integer", "Integer Type"),
-            ("float", "Float", "Float Type"),
-            ("str", "String", "String Type"),
-        ],
-    )
-    bool_value: bpy.props.BoolProperty(update=_update)
-    int_value: bpy.props.IntProperty(update=_update)
-    float_value: bpy.props.FloatProperty(update=_update)
-    str_value: bpy.props.StringProperty(update=_update)
-    defined: bpy.props.BoolProperty(default=True)
-
-
 class BlendQueryWindowPropertyGroup(bpy.types.PropertyGroup):
     installing_dependencies: bpy.props.BoolProperty(
         name="Installing",
@@ -178,7 +147,6 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
         name="Script", type=bpy.types.Text, update=_update
     )
     reload: bpy.props.BoolProperty(name="Hot Reload", default=True, update=_update)
-    attribute_pointers: bpy.props.CollectionProperty(type=AttributePropertyGroup)
     object_pointers: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
 
 
@@ -191,14 +159,12 @@ class BlendQueryUpdateOperator(bpy.types.Operator):
     def modal(self, context, event):
         object = self.object
         blendquery = object.blendquery
-        script, attribute_pointers, object_pointers = (
+        script, object_pointers = (
             blendquery.script,
-            blendquery.attribute_pointers,
             blendquery.object_pointers,
         )
         try:
-            locals = parse_script(script.as_string(), attribute_pointers)
-            # map_attributes(locals, attribute_pointers)
+            locals = parse(script.as_string())
             script_objects = {
                 name: value
                 for name, value in locals.items()
@@ -314,19 +280,6 @@ class BlendQueryPanel(bpy.types.Panel):
             row.prop(object.blendquery, "script")
             row.prop(object.blendquery, "reload")
 
-            attributes = [
-                attribute
-                for attribute in object.blendquery.attribute_pointers
-                if attribute.defined
-            ]
-            if len(attributes) > 0:
-                box = layout.box()
-                box.label(text="Attributes")
-                for attribute in attributes:
-                    row = box.row()
-                    property = TYPE_TO_PROPERTY[attribute.type]
-                    row.prop(attribute, property, text=attribute.key)
-
     def not_installed(self, layout, context):
         box = layout.box()
         box.label(
@@ -336,7 +289,6 @@ class BlendQueryPanel(bpy.types.Panel):
         box.label(text="    • CadQuery")
         box.label(text="    • Build123d")
         column = box.column()
-
         if context.window_manager.blendquery.installing_dependencies:
             column.enabled = False
             column.operator(

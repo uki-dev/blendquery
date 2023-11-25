@@ -3,7 +3,6 @@ import bpy
 import cadquery
 import build123d
 from typing import Union, List
-import re
 
 Shape = Union[cadquery.Shape, build123d.Shape]
 Object = Union[
@@ -17,6 +16,18 @@ Object = Union[
 class BlendQueryBuildException(Exception):
     def __init__(self, message):
         super().__init__(message)
+
+
+def parse(script: str):
+    globals = {
+        "cadquery": cadquery,
+        "cq": cadquery,
+    }
+    locals = {}
+    exec(script, globals, locals)
+    # Ignore all keys that start with `_`, as they are to be considered hidden
+    locals = {key: value for key, value in locals.items() if not key.startswith("_")}
+    return locals
 
 
 def build(cadquery_objects, object_pointers, root):
