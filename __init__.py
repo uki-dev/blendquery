@@ -61,6 +61,10 @@ def register():
     bpy.utils.register_class(BlendQueryInstallOperator)
     bpy.utils.register_class(BlendQueryUpdateOperator)
     bpy.utils.register_class(BlendQueryPanel)
+    bpy.utils.register_class(BlendQueryWindowPropertyGroup)
+    bpy.types.WindowManager.blendquery = bpy.props.PointerProperty(
+        type=BlendQueryWindowPropertyGroup
+    )
     bpy.types.Object.blendquery = bpy.props.PointerProperty(
         type=BlendQueryPropertyGroup
     )
@@ -74,6 +78,9 @@ def register():
 
 def unregister():
     bpy.app.handlers.load_post.remove(initialise)
+    del bpy.types.Object.blendquery
+    del bpy.types.WindowManager.blendquery
+    bpy.utils.unregister_class(BlendQueryWindowPropertyGroup)
     bpy.utils.unregister_class(BlendQueryPanel)
     bpy.utils.unregister_class(BlendQueryUpdateOperator)
     bpy.utils.unregister_class(BlendQueryInstallOperator)
@@ -104,7 +111,6 @@ def update(object):
     )
 
     def invoke_operator():
-        print("object", object)
         context_override = bpy.context.copy()
         context_override["active_object"] = object
         with bpy.context.temp_override(**context_override):
@@ -150,6 +156,14 @@ class AttributePropertyGroup(bpy.types.PropertyGroup):
     float_value: bpy.props.FloatProperty(update=_update)
     str_value: bpy.props.StringProperty(update=_update)
     defined: bpy.props.BoolProperty(default=True)
+
+
+class BlendQueryWindowPropertyGroup(bpy.types.PropertyGroup):
+    installing_dependencies: bpy.props.BoolProperty(
+        name="Installing",
+        default=False,
+        description="Whether BlendQuery is installing dependencies",
+    )
 
 
 class ObjectPropertyGroup(bpy.types.PropertyGroup):
@@ -222,33 +236,27 @@ class BlendQueryUpdateOperator(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
 
-installing = False
-install_exception = None
-
-
 class BlendQueryInstallOperator(bpy.types.Operator):
     bl_idname = "blendquery.install"
     bl_label = "Install"
     bl_description = "Installs BlendQuery required dependencies."
 
+    exception = None
+
     def invoke(self, context, event):
-        self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
+        # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
+        # In this case it makes slightly more sense because installing is quite an async action
         context.window_manager.modal_handler_add(self)
+        context.window_manager.blendquery.installing_dependencies = True
 
         from .install import install_dependencies, BlendQueryInstallException
 
         def callback(result):
             if isinstance(result, BlendQueryInstallException):
-                global install_exception
-                install_exception = result
+                self.exception = result
             else:
                 import_dependencies()
-            global installing
-            installing = False
 
-        global installing, install_exception
-        installing = True
-        install_exception = None
         pip_executable = os.path.join(
             venv_dir, "Scripts" if os.name == "nt" else "bin", "pip"
         )
@@ -258,10 +266,17 @@ class BlendQueryInstallOperator(bpy.types.Operator):
 
     def modal(self, context, event):
         if not self.thread.is_alive():
-            if install_exception:
-                self.report({"ERROR"}, str(install_exception))
-            context.window_manager.event_timer_remove(self.timer)
-            # TODO: this stinks :)
+            context.window_manager.blendquery.installing_dependencies = False
+            if self.exception:
+                self.report(
+                    {"WARNING"},
+                    f"Failed to install BlendQuery dependencies: {self.exception}",
+                )
+                # Info area seems to lag behind so we must force it to redraw
+                # TODO: Find a way to avoid this
+                redraw_info_area()
+            # Setting `installing_dependencies` here doesn't seem to redraw the UI despite it being a property group so we must force it to redraw
+            # TODO: Find a way to avoid this
             redraw_ui()
             return {"FINISHED"}
         return {"PASS_THROUGH"}
@@ -296,22 +311,20 @@ class BlendQueryPanel(bpy.types.Panel):
             box.label(text="    • CadQuery")
             box.label(text="    • Build123d")
             column = box.column()
-            column.enabled = not installing
-            install_text = (
-                "Installing dependencies..." if installing else "Install dependencies"
-            )
-            column.operator(
-                "blendquery.install",
-                icon="PACKAGE",
-                text=install_text,
-            )
-            if install_exception is not None:
-                box = box.box()
-                box.label(
-                    icon="ERROR",
-                    text="Installation failed. Please see system console for more information.",
+
+            if context.window_manager.blendquery.installing_dependencies:
+                column.enabled = False
+                column.operator(
+                    "blendquery.install",
+                    icon="PACKAGE",
+                    text="Installing dependencies...",
                 )
-            return
+            else:
+                column.operator(
+                    "blendquery.install",
+                    icon="PACKAGE",
+                    text="Install dependencies",
+                )
 
         if context.active_object:
             object = context.active_object
