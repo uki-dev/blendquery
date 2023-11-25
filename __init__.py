@@ -302,30 +302,12 @@ class BlendQueryPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        if not are_dependencies_installed():
-            box = layout.box()
-            box.label(
-                icon="INFO",
-                text="BlendQuery requires the following dependencies to be installed:",
-            )
-            box.label(text="    • CadQuery")
-            box.label(text="    • Build123d")
-            column = box.column()
+        if are_dependencies_installed():
+            self.installed(layout, context)
+        else:
+            self.not_installed(layout, context)
 
-            if context.window_manager.blendquery.installing_dependencies:
-                column.enabled = False
-                column.operator(
-                    "blendquery.install",
-                    icon="PACKAGE",
-                    text="Installing dependencies...",
-                )
-            else:
-                column.operator(
-                    "blendquery.install",
-                    icon="PACKAGE",
-                    text="Install dependencies",
-                )
-
+    def installed(self, layout, context):
         if context.active_object:
             object = context.active_object
             row = layout.row()
@@ -344,3 +326,27 @@ class BlendQueryPanel(bpy.types.Panel):
                     row = box.row()
                     property = TYPE_TO_PROPERTY[attribute.type]
                     row.prop(attribute, property, text=attribute.key)
+
+    def not_installed(self, layout, context):
+        box = layout.box()
+        box.label(
+            icon="INFO",
+            text="BlendQuery requires the following dependencies to be installed:",
+        )
+        box.label(text="    • CadQuery")
+        box.label(text="    • Build123d")
+        column = box.column()
+
+        if context.window_manager.blendquery.installing_dependencies:
+            column.enabled = False
+            column.operator(
+                "blendquery.install",
+                icon="PACKAGE",
+                text="Installing dependencies...",
+            )
+        else:
+            column.operator(
+                "blendquery.install",
+                icon="PACKAGE",
+                text="Install dependencies",
+            )
