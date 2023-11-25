@@ -105,7 +105,7 @@ def build_shape(
 ):
     vertices, faces = shape.tessellate(tolerance, angularTolerance)
     vertices = [
-        vertex.toTuple() if isinstance(vertex, cadquery.Vertex) else vertex.to_tuple()
+        vertex.toTuple() if hasattr(vertex, "toTuple") else vertex.to_tuple()
         for vertex in vertices
     ]
 
