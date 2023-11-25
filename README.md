@@ -1,11 +1,16 @@
 # BlendQuery
-[CadQuery](https://github.com/CadQuery/cadquery) integration for Blender
+[CadQuery](https://github.com/CadQuery/cadquery) and [Build123d](https://github.com/gumyr/build123d) integration for Blender
 
 ![image](https://user-images.githubusercontent.com/7185241/208252834-c1cdd4eb-b37c-4fd0-bf71-3cdb8ad4bca0.png)
 
+## Installation
+[Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-add-ons)
+
 ## Usage
-Blender **MUST** be launched with administrative privileges for BlendQuery to install its dependencies, and to write intermediate CadQuery export files to disk.
+The BlendQuery panel can be located under `Object Properties`, where you are able to select your script to generate into the Blender scene.
 
-BlendQuery can be located under the `Object Properties` panel, where you are able to select your CadQuery script to run for the selected object.
+![image](https://github.com/uki-dev/blendquery/assets/7185241/3012c51f-08a3-4b3f-a9ea-beb6ddbfc08b)
 
-![image](https://user-images.githubusercontent.com/7185241/208253188-d1c5ec1f-7524-47b7-993a-f2a8f5d10ad6.png)
+### Showing / Hiding Objects
+BlendQuery will automatically genenerate any topology object variables from the global scope of your script into the Blender scene. To prevent this, simply prefix your variable with `_`.
+
