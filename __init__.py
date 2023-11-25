@@ -220,8 +220,6 @@ class BlendQueryInstallOperator(bpy.types.Operator):
         def callback(result):
             if isinstance(result, BlendQueryInstallException):
                 self.exception = result
-            else:
-                import_dependencies()
 
         pip_executable = os.path.join(
             venv_dir, "Scripts" if os.name == "nt" else "bin", "pip"
@@ -241,6 +239,10 @@ class BlendQueryInstallOperator(bpy.types.Operator):
                 # Info area seems to lag behind so we must force it to redraw
                 # TODO: Find a way to avoid this
                 redraw_info_area()
+            else:
+                import_dependencies()
+                initialise_scene()
+
             # Setting `installing_dependencies` here doesn't seem to redraw the UI despite it being a property group so we must force it to redraw
             # TODO: Find a way to avoid this
             redraw_ui()
