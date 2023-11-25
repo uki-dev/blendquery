@@ -174,22 +174,24 @@ class BlendQueryUpdateOperator(bpy.types.Operator):
         except Exception as exception:
             import re
 
-            # "ERROR" type opens a input blocking pop-up, so we report using "INFO"
-            stack_trace_str = re.search(
+            stack_trace = "".join(
+                traceback.format_exception(
+                    type(exception),
+                    exception,
+                    exception.__traceback__,
+                )
+            )
+            script_error = re.search(
                 r'File "<string>",\s*(.*(?:\n.*)*)',
-                "".join(
-                    traceback.format_exception(
-                        type(exception),
-                        exception,
-                        exception.__traceback__,
-                    )
-                ),
+                stack_trace,
                 re.MULTILINE | re.DOTALL,
-            ).group(1)
+            )
+            # "ERROR" type opens a input blocking pop-up, so we report using "WARNING"
             self.report(
                 {"WARNING"},
-                f"Failed to generate BlendQuery object: {stack_trace_str}",
+                f"Failed to generate BlendQuery object: {script_error and script_error.group(1) or stack_trace}",
             )
+
             # Info area seems to lag behind so we must force it to redraw
             # TODO: Find a way to avoid this
             redraw_info_area()
