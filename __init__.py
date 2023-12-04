@@ -75,7 +75,11 @@ def register():
 
 
 def unregister():
-    bpy.app.handlers.load_post.remove(initialise_scene)
+    try:
+        bpy.app.handlers.load_post.remove(initialise_scene)
+    except:
+        pass
+    
     del bpy.types.Object.blendquery
     del bpy.types.WindowManager.blendquery
     bpy.utils.unregister_class(BlendQueryWindowPropertyGroup)
