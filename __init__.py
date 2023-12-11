@@ -4,6 +4,8 @@ bl_info = {
     "category": "Parametric",
 }
 
+RELOAD_DEBOUNCE_S = 1.0
+
 import os
 import sys
 import venv
@@ -16,7 +18,7 @@ from typing import Union
 import bpy
 from bpy.app.handlers import persistent
 
-from . import poll
+from .poll import watch_for_text_changes
 
 if platform.system() == "Windows":
     user_dir = os.environ["USERPROFILE"]
@@ -107,19 +109,20 @@ def update(object):
         blendquery.reload,
     )
 
-    def invoke_operator():
-        context_override = bpy.context.copy()
-        context_override["active_object"] = object
-        with bpy.context.temp_override(**context_override):
-            bpy.ops.blendquery.update()
-
     if script is not None and reload is True:
         if not object in disposers:
-            invoke_operator()
-            # TODO: Debounce
-            disposers[object] = poll.watch_for_text_changes(
+            from .debounce import debounce
+
+            def invoke_update_operator():
+                context_override = bpy.context.copy()
+                context_override["active_object"] = object
+                with bpy.context.temp_override(**context_override):
+                    bpy.ops.blendquery.update()
+
+            invoke_update_operator()
+            disposers[object] = watch_for_text_changes(
                 script,
-                lambda: invoke_operator(),
+                debounce(RELOAD_DEBOUNCE_S)(invoke_update_operator),
             )
     elif object in disposers:
         disposer = disposers[object]
