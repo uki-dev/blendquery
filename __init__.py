@@ -173,6 +173,9 @@ class BlendQueryUpdateOperator(bpy.types.Operator):
                 for name, value in locals.items()
                 if isinstance(value, Object)
             }
+            # TODO: Tesellation is a performance bottleneck for complex scripts.
+            #       Investigate moving all non-blender code into a separate thread,
+            #       or alternatively, use `ocp-tessellate`
             build(script_objects, object_pointers, object)
         except Exception as exception:
             import re
