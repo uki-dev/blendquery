@@ -100,8 +100,11 @@ def build_shape(
     parent,
     object_pointers,
     material=None,
-    tolerance=0.1,
-    angularTolerance=0.1,
+    # Tolerances are a trade off between accuracy and performance
+    # `0.001` is decided from a standard of `1u=1m`
+    # TODO: Expose this via object so that it may be configured by the user for generating more/less complex geometry
+    tolerance=0.001,
+    angularTolerance=0.001,
 ):
     vertices, faces = shape.tessellate(tolerance, angularTolerance)
     vertices = [
