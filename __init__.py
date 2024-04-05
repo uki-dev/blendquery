@@ -242,7 +242,6 @@ class BlendQueryInstallOperator(bpy.types.Operator):
 
     def modal(self, context, event):
         if not self.thread.is_alive():
-            context.window_manager.blendquery.installing_dependencies = False
             if self.exception:
                 self.report(
                     {"WARNING"},
@@ -257,6 +256,7 @@ class BlendQueryInstallOperator(bpy.types.Operator):
 
             # Setting `installing_dependencies` here doesn't seem to redraw the UI despite it being a property group so we must force it to redraw
             # TODO: Find a way to avoid this
+            context.window_manager.blendquery.installing_dependencies = False
             redraw_ui()
             return {"FINISHED"}
         return {"PASS_THROUGH"}
