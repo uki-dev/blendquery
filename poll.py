@@ -45,7 +45,8 @@ def watch_for_text_changes(
     bpy.app.timers.register(timer)
 
     def dispose():
-        bpy.app.timers.unregister(timer)
+        if bpy.app.timers.is_registered(timer):
+            bpy.app.timers.unregister(timer)
 
     return dispose
 
