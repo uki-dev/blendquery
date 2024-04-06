@@ -1,45 +1,50 @@
-# TODO: fix typing
+from typing import Union, List, Tuple
+from dataclasses import dataclass, field
+
 import bpy
 import cadquery
 import build123d
-from typing import Union, List
 
-Shape = Union[cadquery.Shape, build123d.Shape]
-Object = Union[
-    Shape,
+ParametricShape = Union[cadquery.Shape, build123d.Shape]
+ParametricObject = Union[
+    ParametricShape,
     cadquery.Workplane,
     cadquery.Assembly,
     build123d.Builder,
 ]
 
+@dataclass
+class ParametricObjectNode:
+    name: str
+    material: Union[str, None] = None
+    children: List['ParametricObjectNode'] = field(default_factory=list)
+    vertices: List[Tuple[float, float, float]] = field(default_factory=list)
+    faces: List[Tuple[int, int, int]] = field(default_factory=list)
 
 class BlendQueryBuildException(Exception):
     def __init__(self, message):
         super().__init__(message)
 
-
-def parse(script: str):
-    globals = {
-        "cadquery": cadquery,
-        "cq": cadquery,
-    }
-    locals = {}
-    exec(script, globals, locals)
-    # Ignore all keys that start with `_`, as they are to be considered hidden
-    locals = {key: value for key, value in locals.items() if not key.startswith("_")}
-    return locals
-
-
-def build(cadquery_objects, object_pointers, root):
+def regenerate_blendquery_object(parametric_objects: List[ParametricObject], root_blender_object: bpy.types.Object, old_blender_objects):
     # Store current selection
     active = bpy.context.view_layer.objects.active
     selected_objects = bpy.context.selected_objects.copy()
 
     # Clean up previously generated objects
-    clean(object_pointers)
+    delete_blender_objects(old_blender_objects)
 
-    for name, value in cadquery_objects.items():
-        build_object(value, name, root, object_pointers)
+    new_blender_objects = []
+
+    for parametric_object in parametric_objects:
+        new_blender_objects.append(build_blender_object(parametric_object, root_blender_object))
+
+    new_blender_objects = flatten_list(new_blender_objects)
+    
+    # Link new objects to the scene and add them into the blendquery objects collection
+    for blender_object in new_blender_objects:
+        bpy.context.scene.collection.objects.link(blender_object)
+        property_group = old_blender_objects.add()
+        property_group.object = blender_object
 
     # Restore selection
     for selected_object in bpy.context.selected_objects:
@@ -51,90 +56,50 @@ def build(cadquery_objects, object_pointers, root):
     except:
         pass
 
-
-def clean(object_pointers):
-    for pointer in object_pointers:
+def delete_blender_objects(blender_objects):
+    for pointer in blender_objects:
         try:
             bpy.data.objects.remove(pointer.object, do_unlink=True)
         except:
             continue
-    object_pointers.clear()
+    blender_objects.clear()
 
+def build_blender_object(parametric_object: ParametricObjectNode, parent: bpy.types.Object):
 
-# TODO: return a list of objects created by build and pull `object_pointers` into a higher level
-def build_object(object: Object, name: str, parent, object_pointers, material=None):
-    try:
-        material = bpy.data.materials[object.material]
-    except:
-        pass
+    mesh = None
 
-    if isinstance(object, cadquery.Assembly):
-        name = name if object.parent is None else object.name
-        assembly_object = create_blender_object(
-            name,
-            assembly_object,
-            object_pointers,
-        )
-        for shape in object.shapes:
-            build_object(shape, name, assembly_object, object_pointers, material)
-        for child in object.children:
-            build_object(child, name, assembly_object, object_pointers, material)
-        return
+    if len(parametric_object.vertices) > 0:
+        mesh = bpy.data.meshes.new(parametric_object.name)
+        mesh.from_pydata(parametric_object.vertices, [], parametric_object.faces)
+        mesh.update()
 
-    if isinstance(object, Shape):
-        shape = object
-    elif isinstance(object, cadquery.Workplane):
-        shape = cadquery.exporters.utils.toCompound(object)
-    elif isinstance(object, build123d.Builder):
-        shape = object._obj
-    else:
-        raise BlendQueryBuildException(
-            "Failed to build object; Unsupported object type " + str(type(object))
-        )
-    build_shape(shape, name, parent, object_pointers, material)
-
-
-def build_shape(
-    shape: Shape,
-    name: str,
-    parent,
-    object_pointers,
-    material=None,
-    # Tolerances are a trade off between accuracy and performance
-    # `0.01` is decided from a standard of `1u=1m`
-    # TODO: Expose this via object so that it may be configured by the user for generating more/less complex geometry
-    tolerance=0.01,
-    angularTolerance=0.01,
-):
-    vertices, faces = shape.tessellate(tolerance, angularTolerance)
-    vertices = [
-        vertex.toTuple() if hasattr(vertex, "toTuple") else vertex.to_tuple()
-        for vertex in vertices
-    ]
-
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(vertices, [], faces)
-    mesh.update()
-
-    object = create_blender_object(name, parent, object_pointers, mesh)
-    # TODO: could this live at a higher level?
-    if material is not None:
-        object.data.materials.append(material)
-    return object
-
-
-def create_blender_object(
-    name: str,
-    parent,
-    object_pointers,
-    mesh=None,
-):
-    object = bpy.data.objects.new(
-        name,
+    blender_object = bpy.data.objects.new(
+        parametric_object.name,
         mesh,
     )
-    object.parent = parent
-    property_group = object_pointers.add()
-    property_group.object = object
-    bpy.context.scene.collection.objects.link(object)
-    return object
+
+    if mesh is not None:
+        if parametric_object.material is not None:
+            try:
+                material = bpy.data.materials[parametric_object.material]
+                blender_object.data.materials.append(material)
+            except:
+                pass
+
+    blender_object.parent = parent
+
+    blender_objects = [blender_object]
+
+    for child in parametric_object.children:
+        blender_objects.append(build_blender_object(child, blender_object))
+
+    return blender_objects
+
+def flatten_list(nested_list):
+    flattened_list = []
+    for item in nested_list:
+        if isinstance(item, list):
+            flattened_list.extend(flatten_list(item))
+        else:
+            flattened_list.append(item)
+    return flattened_list

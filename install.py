@@ -11,6 +11,7 @@ class BlendQueryInstallException(Exception):
 
 def install_dependencies(
     pip_executable: str,
+    # TODO: @uki-dev change to `queue.Queue`
     callback: Callable[
         [Union[BlendQueryInstallException, None]],
         None,

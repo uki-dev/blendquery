@@ -7,36 +7,20 @@ bl_info = {
 RELOAD_DEBOUNCE_S = 1.0
 
 import os
+import re
 import sys
-import venv
-import platform
 import traceback
 import importlib
 import importlib.util
-from typing import Union
 
 import bpy
 from bpy.app.handlers import persistent
 
-from .poll import watch_for_text_changes
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from setup_venv import setup_venv
+venv_dir = setup_venv()
 
-if platform.system() == "Windows":
-    user_dir = os.environ["USERPROFILE"]
-else:
-    user_dir = os.environ["HOME"]
-version_info = sys.version_info
-version_string = f"{version_info.major}.{version_info.minor}.{version_info.micro}"
-venv_dir = os.path.join(user_dir, f"blendquery/{version_string}")
-
-
-def setup_venv():
-    if not os.path.exists(os.path.join(venv_dir, "pyvenv.cfg")):
-        builder = venv.EnvBuilder(with_pip=True)
-        builder.create(venv_dir)
-
-    # TODO: Is there a better way to do this?
-    sys.path.append(os.path.join(venv_dir, "Lib", "site-packages"))
-
+from poll import watch_for_text_changes
 
 cadquery = None
 build123d = None
@@ -49,7 +33,7 @@ def register():
     bpy.utils.register_class(BlendQueryPropertyGroup)
     bpy.utils.register_class(BlendQueryImportDependenciesOperator)
     bpy.utils.register_class(BlendQueryInstallOperator)
-    bpy.utils.register_class(BlendQueryUpdateOperator)
+    bpy.utils.register_class(BlendQueryRegenerateOperator)
     bpy.utils.register_class(BlendQueryPanel)
     bpy.utils.register_class(BlendQueryWindowPropertyGroup)
     bpy.types.WindowManager.blendquery = bpy.props.PointerProperty(
@@ -59,9 +43,8 @@ def register():
         type=BlendQueryPropertyGroup
     )
 
-    setup_venv()
-
     bpy.app.handlers.load_post.append(initialise)
+
 
 def unregister():
     try:
@@ -73,11 +56,12 @@ def unregister():
     del bpy.types.WindowManager.blendquery
     bpy.utils.unregister_class(BlendQueryWindowPropertyGroup)
     bpy.utils.unregister_class(BlendQueryPanel)
-    bpy.utils.unregister_class(BlendQueryUpdateOperator)
+    bpy.utils.unregister_class(BlendQueryRegenerateOperator)
     bpy.utils.unregister_class(BlendQueryInstallOperator)
     bpy.utils.unregister_class(BlendQueryImportDependenciesOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
     bpy.utils.unregister_class(ObjectPropertyGroup)
+
 
 @persistent
 def initialise(_=None):
@@ -106,13 +90,13 @@ def update(object):
 
     if script is not None and reload is True:
         if not object in disposers:
-            from .debounce import debounce
+            from debounce import debounce
 
             def invoke_update_operator():
                 context_override = bpy.context.copy()
                 context_override["active_object"] = object
                 with bpy.context.temp_override(**context_override):
-                    bpy.ops.blendquery.update()
+                    bpy.ops.blendquery.regenerate()
 
             invoke_update_operator()
             disposers[object] = watch_for_text_changes(
@@ -148,91 +132,126 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
     reload: bpy.props.BoolProperty(name="Hot Reload", default=True, update=_update)
     object_pointers: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
 
+from interop_types import ParametricObjectNode, BlendQueryBuildException
+
 
 class BlendQueryImportDependenciesOperator(bpy.types.Operator):
     bl_idname = "blendquery.import_dependencies"
     bl_label = "BlendQuery Import Dependecies"
 
+    import_error = None
+
     def execute(self, context):
+        global are_dependencies_installed
+        try:
+            global cadquery, build123d
+            global regenerate_blendquery_object
+            cadquery = importlib.import_module("cadquery")
+            build123d = importlib.import_module("build123d")
+            from .blendquery import regenerate_blendquery_object
+            are_dependencies_installed = True
+        except Exception:
+            are_dependencies_installed = False
+            exception_trace = traceback.format_exc()
+            self.import_error = f"Failed to import BlendQuery dependencies: {exception_trace}"
+
+        # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
     
     def modal(self, context, event):
-        global are_dependencies_installed
-        try:
-            global cadquery, build123d
-            global parse, build, Object
-            cadquery = importlib.import_module("cadquery")
-            build123d = importlib.import_module("build123d")
-            from .blendquery import parse, build, Object
-            are_dependencies_installed = True
-        except Exception as exception:
+        if self.import_error is not None:
             are_dependencies_installed = False
             exception_trace = traceback.format_exc()
             self.report(
                 {"WARNING"},
-                f"Failed to import BlendQuery dependencies: {exception_trace}",
+                self.import_error,
             )
             # Info area seems to lag behind so we must force it to redraw
             # TODO: Find a way to avoid this
             redraw_info_area()
         return {"FINISHED"}
 
-class BlendQueryUpdateOperator(bpy.types.Operator):
-    bl_idname = "blendquery.update"
-    bl_label = "BlendQuery Update"
 
-    object = None
+def create_parse_parametric_script_thread(script: str):
+    import threading, subprocess, queue, pickle
+    response = queue.Queue()
 
+    def process():
+        cwd = os.path.dirname(os.path.abspath(__file__))
+        parent_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        env = os.environ.copy()
+        env['PATH'] = parent_directory
+        process = subprocess.Popen([sys.executable, 'parse.py'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
+        process.stdin.write(pickle.dumps(script))
+        process.stdin.close()
+
+        stdout_data, stderr_data = process.communicate()
+        response.put(pickle.loads(stdout_data))
+
+        # TODO: Investigate return code issue.
+        # if process.returncode == 0:
+        #     response.put(process.stdout.read().decode('utf-8'))
+        # else:
+        #     exception = process.stdout.read().decode('utf-8')
+        #     error_output = process.stderr.read().decode('utf-8')
+        #     response.put(RuntimeError("Subprocess failed with return code {}; {}; {}".format(process.returncode, error_output, exception)))
+
+    thread = threading.Thread(target=process)
+    thread.start()
+    return thread, response
+
+
+class BlendQueryRegenerateOperator(bpy.types.Operator):
+    bl_idname = "blendquery.regenerate"
+    bl_label = "BlendQuery Regenerate"
+
+    # (self, context, event) must be present in order to register modal operator in Blender
+    def modal(self, context, event):
+        if self.thread.is_alive():
+            return {"PASS_THROUGH"}
+        
+        response = self.response.get()
+        if isinstance(response, Exception):
+            self.report_exception(response)
+        else:
+            regenerate_blendquery_object(response, self.object, self.object.blendquery.object_pointers)
+
+        return {"FINISHED"}
+
+    # `execute` is required in order to call this operator via `bpy.ops.blendquery.regenerate()`
+    # (self, context) must be present in order to register modal operator in Blender
     def execute(self, context):
         self.object = context.active_object
+        # TODO: kill any existing threads for this `context.active_object`
+        self.thread, self.response = create_parse_parametric_script_thread(self.object.blendquery.script.as_string())
+
         # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
-    def modal(self, context, event):
-        object = self.object
-        blendquery = object.blendquery
-        script, object_pointers = (
-            blendquery.script,
-            blendquery.object_pointers,
+    def report_exception(self, exception):
+        stack_trace = "".join(
+            traceback.format_exception(
+                type(exception),
+                exception,
+                exception.__traceback__,
+            )
         )
-        try:
-            locals = parse(script.as_string())
-            script_objects = {
-                name: value
-                for name, value in locals.items()
-                if isinstance(value, Object)
-            }
-            # TODO: Tesellation is a performance bottleneck for complex scripts.
-            #       Investigate moving all non-blender code into a separate thread,
-            #       or alternatively, use `ocp-tessellate`
-            build(script_objects, object_pointers, object)
-        except Exception as exception:
-            import re
+        script_error = re.search(
+            r'File "<string>",\s*(.*(?:\n.*)*)',
+            stack_trace,
+            re.MULTILINE | re.DOTALL,
+        )
+        # "ERROR" type opens a input blocking pop-up, so we report using "WARNING"
+        self.report(
+            {"WARNING"},
+            f"Failed to regenerate BlendQuery object: {script_error and script_error.group(1) or stack_trace}",
+        )
+        # Info area seems to lag behind so we must force it to redraw
+        # TODO: Find a way to avoid this
+        redraw_info_area()
 
-            stack_trace = "".join(
-                traceback.format_exception(
-                    type(exception),
-                    exception,
-                    exception.__traceback__,
-                )
-            )
-            script_error = re.search(
-                r'File "<string>",\s*(.*(?:\n.*)*)',
-                stack_trace,
-                re.MULTILINE | re.DOTALL,
-            )
-            # "ERROR" type opens a input blocking pop-up, so we report using "WARNING"
-            self.report(
-                {"WARNING"},
-                f"Failed to generate BlendQuery object: {script_error and script_error.group(1) or stack_trace}",
-            )
-
-            # Info area seems to lag behind so we must force it to redraw
-            # TODO: Find a way to avoid this
-            redraw_info_area()
-        return {"FINISHED"}
 
 class BlendQueryInstallOperator(bpy.types.Operator):
     bl_idname = "blendquery.install"
@@ -241,25 +260,26 @@ class BlendQueryInstallOperator(bpy.types.Operator):
 
     exception = None
 
+    # (self, context, event) must be present in order to register a modal operator in Blender
     def invoke(self, context, event):
-        # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
-        # In this case it makes slightly more sense because installing is quite an async action
-        context.window_manager.modal_handler_add(self)
-        context.window_manager.blendquery.installing_dependencies = True
-
-        from .install import install_dependencies, BlendQueryInstallException
+        from install import install_dependencies, BlendQueryInstallException
 
         def callback(result):
             if isinstance(result, BlendQueryInstallException):
                 self.exception = result
 
+        # TODO: this can probably be moved into `install_dependencies` with the new `venv.py` file
         pip_executable = os.path.join(
             venv_dir, "Scripts" if os.name == "nt" else "bin", "pip"
         )
         self.thread = install_dependencies(pip_executable, callback)
 
+        # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
+        context.window_manager.modal_handler_add(self)
+        context.window_manager.blendquery.installing_dependencies = True
         return {"RUNNING_MODAL"}
 
+    # (self, context, event) must be present in order to register a modal operator in Blender
     def modal(self, context, event):
         if not self.thread.is_alive():
             if self.exception:
@@ -279,16 +299,6 @@ class BlendQueryInstallOperator(bpy.types.Operator):
             redraw_ui()
             return {"FINISHED"}
         return {"PASS_THROUGH"}
-
-
-def redraw_ui():
-    bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
-
-
-def redraw_info_area():
-    for area in bpy.context.screen.areas:
-        if area.type == "INFO":
-            area.tag_redraw()
 
 
 # TODO: Pull UI components into separate functions
@@ -335,3 +345,13 @@ class BlendQueryPanel(bpy.types.Panel):
                 icon="PACKAGE",
                 text="Install dependencies",
             )
+
+
+def redraw_ui():
+    bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+
+
+def redraw_info_area():
+    for area in bpy.context.screen.areas:
+        if area.type == "INFO":
+            area.tag_redraw()
