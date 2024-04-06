@@ -39,6 +39,7 @@ def setup_venv():
 cadquery = None
 build123d = None
 
+# TODO: Find a better way to store/reset
 are_dependencies_installed = False
 
 def register():
@@ -123,6 +124,7 @@ def update(object):
 
 
 class BlendQueryWindowPropertyGroup(bpy.types.PropertyGroup):
+    # TODO: Find a better way to store/reset
     installing_dependencies: bpy.props.BoolProperty(
         name="Installing",
         default=False,
