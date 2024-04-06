@@ -39,25 +39,12 @@ def setup_venv():
 cadquery = None
 build123d = None
 
-
-def import_dependencies():
-    global cadquery, build123d
-    global parse, build, Object
-    cadquery = importlib.import_module("cadquery")
-    build123d = importlib.import_module("build123d")
-    from .blendquery import parse, build, Object
-
-
-def are_dependencies_installed():
-    return (
-        importlib.util.find_spec("cadquery") is not None
-        and importlib.util.find_spec("build123d") is not None
-    )
-
+are_dependencies_installed = False
 
 def register():
     bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(BlendQueryPropertyGroup)
+    bpy.utils.register_class(BlendQueryImportDependenciesOperator)
     bpy.utils.register_class(BlendQueryInstallOperator)
     bpy.utils.register_class(BlendQueryUpdateOperator)
     bpy.utils.register_class(BlendQueryPanel)
@@ -71,14 +58,11 @@ def register():
 
     setup_venv()
 
-    if are_dependencies_installed():
-        import_dependencies()
-        bpy.app.handlers.load_post.append(initialise_scene)
-
+    bpy.app.handlers.load_post.append(initialise)
 
 def unregister():
     try:
-        bpy.app.handlers.load_post.remove(initialise_scene)
+        bpy.app.handlers.load_post.remove(initialise)
     except:
         pass
     
@@ -88,12 +72,16 @@ def unregister():
     bpy.utils.unregister_class(BlendQueryPanel)
     bpy.utils.unregister_class(BlendQueryUpdateOperator)
     bpy.utils.unregister_class(BlendQueryInstallOperator)
+    bpy.utils.unregister_class(BlendQueryImportDependenciesOperator)
     bpy.utils.unregister_class(BlendQueryPropertyGroup)
     bpy.utils.unregister_class(ObjectPropertyGroup)
 
-
 @persistent
-def initialise_scene(_=None):
+def initialise(_=None):
+    bpy.ops.blendquery.import_dependencies()
+    if not are_dependencies_installed:
+        return
+    
     # TODO: find a cleaner solution than this
     # as `update_object` may delete objects from `bpy.data.objects` to perform cleanup, iterate on a copy of it instead to avoid crashes due to `EXCEPTION_ACCESS_VIOLATION`
     objects = []
@@ -157,11 +145,46 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
     object_pointers: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
 
 
+class BlendQueryImportDependenciesOperator(bpy.types.Operator):
+    bl_idname = "blendquery.import_dependencies"
+    bl_label = "BlendQuery Import Dependecies"
+
+    def execute(self, context):
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+    
+    def modal(self, context, event):
+        global are_dependencies_installed
+        try:
+            global cadquery, build123d
+            global parse, build, Object
+            cadquery = importlib.import_module("cadquery")
+            build123d = importlib.import_module("build123d")
+            from .blendquery import parse, build, Object
+            are_dependencies_installed = True
+        except Exception as exception:
+            are_dependencies_installed = False
+            exception_trace = traceback.format_exc()
+            self.report(
+                {"WARNING"},
+                f"Failed to import BlendQuery dependencies: {exception_trace}",
+            )
+            # Info area seems to lag behind so we must force it to redraw
+            # TODO: Find a way to avoid this
+            redraw_info_area()
+        return {"FINISHED"}
+
 class BlendQueryUpdateOperator(bpy.types.Operator):
     bl_idname = "blendquery.update"
     bl_label = "BlendQuery Update"
 
     object = None
+
+    def execute(self, context):
+        self.object = context.active_object
+        # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
         object = self.object
@@ -207,13 +230,6 @@ class BlendQueryUpdateOperator(bpy.types.Operator):
             redraw_info_area()
         return {"FINISHED"}
 
-    def execute(self, context):
-        self.object = context.active_object
-        # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
-        context.window_manager.modal_handler_add(self)
-        return {"RUNNING_MODAL"}
-
-
 class BlendQueryInstallOperator(bpy.types.Operator):
     bl_idname = "blendquery.install"
     bl_label = "Install"
@@ -251,8 +267,7 @@ class BlendQueryInstallOperator(bpy.types.Operator):
                 # TODO: Find a way to avoid this
                 redraw_info_area()
             else:
-                import_dependencies()
-                initialise_scene()
+                initialise()
 
             # Setting `installing_dependencies` here doesn't seem to redraw the UI despite it being a property group so we must force it to redraw
             # TODO: Find a way to avoid this
@@ -282,7 +297,7 @@ class BlendQueryPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        if are_dependencies_installed():
+        if are_dependencies_installed:
             self.installed(layout, context)
         else:
             self.not_installed(layout, context)
