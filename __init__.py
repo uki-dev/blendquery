@@ -28,6 +28,18 @@ build123d = None
 # TODO: Find a better way to store/reset
 are_dependencies_installed = False
 
+def statusbar_progress_bar(self, context):
+    if bpy.context.window_manager.blendquery.is_regenerating:
+        layout = self.layout
+        row = layout.row()
+        row.progress(
+            text="Regenerating BlendQuery Objects",
+            factor=bpy.context.window_manager.blendquery.regeneration_progress,
+            type="BAR",
+        )
+        row.scale_x = 4
+
+
 def register():
     bpy.utils.register_class(ObjectPropertyGroup)
     bpy.utils.register_class(BlendQueryPropertyGroup)
@@ -44,18 +56,20 @@ def register():
     )
 
     bpy.app.handlers.load_post.append(initialise)
+    bpy.types.STATUSBAR_HT_header.append(statusbar_progress_bar)
 
 
 def unregister():
     try:
+        bpy.types.STATUSBAR_HT_header.remove(statusbar_progress_bar)
         bpy.app.handlers.load_post.remove(initialise)
     except:
         pass
     
     del bpy.types.Object.blendquery
     del bpy.types.WindowManager.blendquery
-    bpy.utils.unregister_class(BlendQueryWindowPropertyGroup)
     bpy.utils.unregister_class(BlendQueryPanel)
+    bpy.utils.unregister_class(BlendQueryWindowPropertyGroup)
     bpy.utils.unregister_class(BlendQueryRegenerateOperator)
     bpy.utils.unregister_class(BlendQueryInstallOperator)
     bpy.utils.unregister_class(BlendQueryImportDependenciesOperator)
@@ -109,15 +123,6 @@ def update(object):
             disposer()
 
 
-class BlendQueryWindowPropertyGroup(bpy.types.PropertyGroup):
-    # TODO: Find a better way to store/reset
-    installing_dependencies: bpy.props.BoolProperty(
-        name="Installing",
-        default=False,
-        description="Whether BlendQuery is installing dependencies",
-    )
-
-
 class ObjectPropertyGroup(bpy.types.PropertyGroup):
     object: bpy.props.PointerProperty(type=bpy.types.Object)
 
@@ -129,10 +134,32 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
     script: bpy.props.PointerProperty(
         name="Script", type=bpy.types.Text, update=_update
     )
-    reload: bpy.props.BoolProperty(name="Hot Reload", default=True, update=_update)
+    reload: bpy.props.BoolProperty(name="Automatic Regeneration", default=True, update=_update)
     object_pointers: bpy.props.CollectionProperty(type=ObjectPropertyGroup)
 
-from interop_types import ParametricObjectNode, BlendQueryBuildException
+
+def ui_update(self, context):
+    for region in context.area.regions:
+        if region.type == "UI":
+            region.tag_redraw()
+    return None
+
+
+class BlendQueryWindowPropertyGroup(bpy.types.PropertyGroup):
+    # TODO: Find a better way to store/reset
+    # TODO: can we also use the `ui_update` here and for other properties?
+    installing_dependencies: bpy.props.BoolProperty(
+        name="Installing",
+        default=False,
+        description="Whether BlendQuery is installing dependencies",
+    )
+
+    is_regenerating: bpy.props.BoolProperty(
+        update=ui_update
+        )
+    regeneration_progress: bpy.props.FloatProperty(
+        update=ui_update
+    )
 
 
 class BlendQueryImportDependenciesOperator(bpy.types.Operator):
@@ -161,8 +188,6 @@ class BlendQueryImportDependenciesOperator(bpy.types.Operator):
     
     def modal(self, context, event):
         if self.import_error is not None:
-            are_dependencies_installed = False
-            exception_trace = traceback.format_exc()
             self.report(
                 {"WARNING"},
                 self.import_error,
@@ -201,23 +226,15 @@ def create_parse_parametric_script_thread(script: str):
     thread.start()
     return thread, response
 
+regenerate_operators = []
+
+def update_regeneration_progress():
+    bpy.context.window_manager.blendquery.is_regenerating = len(regenerate_operators) > 0
+    bpy.context.window_manager.blendquery.regeneration_progress = 1 / (len(regenerate_operators) + 1)
 
 class BlendQueryRegenerateOperator(bpy.types.Operator):
     bl_idname = "blendquery.regenerate"
     bl_label = "BlendQuery Regenerate"
-
-    # (self, context, event) must be present in order to register modal operator in Blender
-    def modal(self, context, event):
-        if self.thread.is_alive():
-            return {"PASS_THROUGH"}
-        
-        response = self.response.get()
-        if isinstance(response, Exception):
-            self.report_exception(response)
-        else:
-            regenerate_blendquery_object(response, self.object, self.object.blendquery.object_pointers)
-
-        return {"FINISHED"}
 
     # `execute` is required in order to call this operator via `bpy.ops.blendquery.regenerate()`
     # (self, context) must be present in order to register modal operator in Blender
@@ -227,8 +244,31 @@ class BlendQueryRegenerateOperator(bpy.types.Operator):
         self.thread, self.response = create_parse_parametric_script_thread(self.object.blendquery.script.as_string())
 
         # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
+        regenerate_operators.append(self)
+        update_regeneration_progress()
+   
+        self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
+    
+        # (self, context, event) must be present in order to register modal operator in Blender
+    def modal(self, context, event):
+        if self.thread.is_alive():
+            return {"PASS_THROUGH"}
+        
+        response = self.response.get()
+        if isinstance(response, Exception):
+            self.report_exception(response)
+        else:
+            regenerate_blendquery_object(response, self.object, self.object.blendquery.object_pointers)
+        
+        regenerate_operators.remove(self)
+        update_regeneration_progress()
+
+        context.window_manager.event_timer_remove(self.timer)
+
+
+        return {"FINISHED"}
 
     def report_exception(self, exception):
         stack_trace = "".join(
@@ -243,7 +283,7 @@ class BlendQueryRegenerateOperator(bpy.types.Operator):
             stack_trace,
             re.MULTILINE | re.DOTALL,
         )
-        # "ERROR" type opens a input blocking pop-up, so we report using "WARNING"
+        # "ERROR" type opens an input blocking pop-up, so we report using "WARNING"
         self.report(
             {"WARNING"},
             f"Failed to regenerate BlendQuery object: {script_error and script_error.group(1) or stack_trace}",
@@ -275,6 +315,7 @@ class BlendQueryInstallOperator(bpy.types.Operator):
         self.thread = install_dependencies(pip_executable, callback)
 
         # `self.report` does not seem to work within `execute` or `invoke`, so we call it within `modal`
+        self.timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         context.window_manager.blendquery.installing_dependencies = True
         return {"RUNNING_MODAL"}
@@ -293,9 +334,10 @@ class BlendQueryInstallOperator(bpy.types.Operator):
             else:
                 initialise()
 
+            context.window_manager.blendquery.installing_dependencies = False
+            context.window_manager.event_timer_remove(self.timer)
             # Setting `installing_dependencies` here doesn't seem to redraw the UI despite it being a property group so we must force it to redraw
             # TODO: Find a way to avoid this
-            context.window_manager.blendquery.installing_dependencies = False
             redraw_ui()
             return {"FINISHED"}
         return {"PASS_THROUGH"}
@@ -319,10 +361,12 @@ class BlendQueryPanel(bpy.types.Panel):
     def installed(self, layout, context):
         if context.active_object:
             object = context.active_object
-            row = layout.row()
-            row.prop(object.blendquery, "script")
+            column = layout.column()
+            column.prop(object.blendquery, "script")
+            column.separator(factor=0.5)
+            row = column.row()
             row.prop(object.blendquery, "reload")
-
+            # row.operator("blendquery.regenerate", text="Regenerate")
     def not_installed(self, layout, context):
         box = layout.box()
         box.label(
