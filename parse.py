@@ -29,16 +29,11 @@ def main():
         }
         exec(script, globals, locals)
 
-        # Filter out all non-constructive and hidden objects (those prefixed with "_")
-        parametric_objects = [
-            value
-            for name, value in locals.items()
-            if isinstance(value, ParametricObject) and not name.startswith("_")
-        ]
-
         return [
-            parse_parametric_object(object, "ROOT", None)
-            for object in parametric_objects
+            parse_parametric_object(value, name, None)
+            for name, value in locals.items()
+            # Filter out all non-constructive and hidden objects (those prefixed with "_")
+            if isinstance(value, ParametricObject) and not name.startswith("_")
         ]
 
     def parse_parametric_object(object: ParametricObject, name: str, material: Union[str, None]) -> ParametricObjectNode:
