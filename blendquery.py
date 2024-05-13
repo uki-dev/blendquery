@@ -40,10 +40,10 @@ def regenerate_blendquery_object(parametric_objects: List[ParametricObject], roo
 
     new_blender_objects = flatten_list(new_blender_objects)
 
-    root_collection = root_blender_object.users_collection[0]
+    parent_collection = root_blender_object.users_collection[0]
     # Link new objects to the scene and add them into the blendquery objects collection
     for blender_object in new_blender_objects:
-        root_collection.objects.link(blender_object)
+        parent_collection.objects.link(blender_object)
         property_group = old_blender_objects.add()
         property_group.object = blender_object
 
@@ -60,6 +60,7 @@ def regenerate_blendquery_object(parametric_objects: List[ParametricObject], roo
 def delete_blender_objects(blender_objects):
     for pointer in blender_objects:
         try:
+            bpy.data.meshes.remove(pointer.object.data)
             bpy.data.objects.remove(pointer.object, do_unlink=True)
         except:
             continue
