@@ -39,10 +39,11 @@ def regenerate_blendquery_object(parametric_objects: List[ParametricObject], roo
         new_blender_objects.append(build_blender_object(parametric_object, root_blender_object))
 
     new_blender_objects = flatten_list(new_blender_objects)
-    
+
+    root_collection = root_blender_object.users_collection[0]
     # Link new objects to the scene and add them into the blendquery objects collection
     for blender_object in new_blender_objects:
-        bpy.context.scene.collection.objects.link(blender_object)
+        root_collection.objects.link(blender_object)
         property_group = old_blender_objects.add()
         property_group.object = blender_object
 
