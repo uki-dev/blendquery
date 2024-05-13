@@ -366,7 +366,7 @@ class BlendQueryPanel(bpy.types.Panel):
             column.separator(factor=0.5)
             row = column.row()
             row.prop(object.blendquery, "reload")
-            # row.operator("blendquery.regenerate", text="Regenerate")
+            row.operator("blendquery.regenerate", text="Regenerate")
     def not_installed(self, layout, context):
         box = layout.box()
         box.label(
