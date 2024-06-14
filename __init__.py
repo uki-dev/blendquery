@@ -139,9 +139,10 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
 
 
 def ui_update(self, context):
-    for region in context.area.regions:
-        if region.type == "UI":
-            region.tag_redraw()
+    if context.area:
+        for region in context.area.regions:
+            if region.type == "UI":
+                region.tag_redraw()
     return None
 
 
@@ -212,8 +213,9 @@ def create_parse_parametric_script_thread(script: str):
         process.stdin.close()
 
         process.wait()
+        assert process.stdout
         stdout_data = process.stdout.read()
-        response.put(pickle.loads(stdout_data))
+        response.put(pickle.loads(stdout_data if stdout_data else b""))
 
         # TODO: Investigate return code issue.
         # if process.returncode == 0:
