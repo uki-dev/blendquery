@@ -211,7 +211,7 @@ def create_parse_parametric_script_thread(script: str):
         process.stdin.write(pickle.dumps(script))
         process.stdin.close()
 
-        stdout_data, stderr_data = process.communicate()
+        stdout_data = process.stdout.read();
         response.put(pickle.loads(stdout_data))
 
         # TODO: Investigate return code issue.
