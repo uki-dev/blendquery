@@ -208,13 +208,14 @@ def create_parse_parametric_script_thread(script: str):
         parent_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         env = os.environ.copy()
         env['PATH'] = parent_directory
-        process = subprocess.Popen([sys.executable, 'parse.py'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
+        process = subprocess.Popen([sys.executable, 'parse.py'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=cwd, env=env)
         process.stdin.write(pickle.dumps(script))
         process.stdin.close()
 
-        process.wait()
         assert process.stdout
         stdout_data = process.stdout.read()
+        process.wait()
+
         response.put(pickle.loads(stdout_data if stdout_data else b""))
 
         # TODO: Investigate return code issue.
