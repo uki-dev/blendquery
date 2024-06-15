@@ -139,9 +139,10 @@ class BlendQueryPropertyGroup(bpy.types.PropertyGroup):
 
 
 def ui_update(self, context):
-    for region in context.area.regions:
-        if region.type == "UI":
-            region.tag_redraw()
+    if context.area:
+        for region in context.area.regions:
+            if region.type == "UI":
+                region.tag_redraw()
     return None
 
 
@@ -207,12 +208,15 @@ def create_parse_parametric_script_thread(script: str):
         parent_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         env = os.environ.copy()
         env['PATH'] = parent_directory
-        process = subprocess.Popen([sys.executable, 'parse.py'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
+        process = subprocess.Popen([sys.executable, 'parse.py'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=cwd, env=env)
         process.stdin.write(pickle.dumps(script))
         process.stdin.close()
 
-        stdout_data, stderr_data = process.communicate()
-        response.put(pickle.loads(stdout_data))
+        assert process.stdout
+        stdout_data = process.stdout.read()
+        process.wait()
+
+        response.put(pickle.loads(stdout_data if stdout_data else b""))
 
         # TODO: Investigate return code issue.
         # if process.returncode == 0:
