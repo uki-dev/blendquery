@@ -1,6 +1,7 @@
 bl_info = {
     "name": "BlendQuery",
-    "blender": (3, 0, 0),
+    "blender": (5, 0, 0),
+    "version": (0, 1, 0),
     "category": "Parametric",
 }
 
@@ -176,7 +177,9 @@ class BlendQueryImportDependenciesOperator(bpy.types.Operator):
             global regenerate_blendquery_object
             cadquery = importlib.import_module("cadquery")
             build123d = importlib.import_module("build123d")
-            from .blendquery import regenerate_blendquery_object
+            # Initialize modules in blendquery.py
+            from .blendquery import _initialize_modules, regenerate_blendquery_object
+            _initialize_modules()
             are_dependencies_installed = True
         except Exception:
             are_dependencies_installed = False

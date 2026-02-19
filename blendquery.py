@@ -1,17 +1,29 @@
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 import bpy
-import cadquery
-import build123d
 
-ParametricShape = Union[cadquery.Shape, build123d.Shape]
-ParametricObject = Union[
-    ParametricShape,
-    cadquery.Workplane,
-    cadquery.Assembly,
-    build123d.Builder,
-]
+if TYPE_CHECKING:
+    import cadquery
+    import build123d
+
+# These will be imported dynamically when needed
+cadquery = None
+build123d = None
+
+ParametricShape = "Union[cadquery.Shape, build123d.Shape]"
+ParametricObject = "Union[cadquery.Shape, build123d.Shape, cadquery.Workplane, cadquery.Assembly, build123d.Builder]"
+
+def _initialize_modules():
+    """Initialize cadquery and build123d modules"""
+    global cadquery, build123d
+    try:
+        import cadquery as cq
+        import build123d as b123d
+        cadquery = cq
+        build123d = b123d
+    except ImportError:
+        pass
 
 @dataclass
 class ParametricObjectNode:
@@ -25,7 +37,7 @@ class BlendQueryBuildException(Exception):
     def __init__(self, message):
         super().__init__(message)
 
-def regenerate_blendquery_object(parametric_objects: List[ParametricObject], root_blender_object: bpy.types.Object, old_blender_objects):
+def regenerate_blendquery_object(parametric_objects: List, root_blender_object: bpy.types.Object, old_blender_objects):
     # Store current selection
     active = bpy.context.view_layer.objects.active
     selected_objects = bpy.context.selected_objects.copy()
@@ -66,7 +78,7 @@ def delete_blender_objects(blender_objects):
             continue
     blender_objects.clear()
 
-def build_blender_object(parametric_object: ParametricObjectNode, parent: bpy.types.Object):
+def build_blender_object(parametric_object: "ParametricObjectNode", parent: bpy.types.Object):
 
     mesh = None
 
